@@ -113,6 +113,33 @@
         80% { opacity: 1; }
         100% { opacity: 0; }
       }
+      
+      /* UI Toggle Button Styles */
+      #uiToggleContainer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100px;
+        height: 100px;
+        z-index: 1000;
+        /* Transparent container to capture mouseover */
+      }
+      #uiToggleButton {
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        background: rgba(0, 0, 0, 0.5);
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      #uiToggleContainer:hover #uiToggleButton {
+        opacity: 1;
+      }
     </style>
     
     <!-- Vertex Shader for final composite -->
@@ -150,6 +177,11 @@
 
     <!-- Speech Bubbles Container -->
     <div id="bubbleLayer"></div>
+
+    <!-- UI Toggle Container (for hiding/showing UI elements) -->
+    <div id="uiToggleContainer">
+      <button id="uiToggleButton">Hide UI</button>
+    </div>
 
     <script>
       // -------------------------------------------------
@@ -331,10 +363,10 @@
         window.addEventListener("resize",onWindowResize,false);
 
         // Phase modal
-        document.getElementById("phaseModalButton").addEventListener("click",()=>{
+        document.getElementById("phaseModalButton").addEventListener("click",()=>{ 
           document.getElementById("phaseModal").style.display="none";
         });
-        window.addEventListener("keydown",(event)=>{
+        window.addEventListener("keydown",(event)=>{ 
           if(event.key==="Enter"){
             document.getElementById("phaseModal").style.display="none";
           }
@@ -592,8 +624,8 @@
                 dir.normalize();
                 let up = new THREE.Vector3(0,1,0);
                 if(Math.abs(dir.dot(up))>0.99) up.set(1,0,0);
-                const right = new THREE.Vector3().crossVectors(dir, up).normalize();
-                const localUp = new THREE.Vector3().crossVectors(right, dir).normalize();
+                const right = new THREE.Vector3().crossVectors(dir,up).normalize();
+                const localUp = new THREE.Vector3().crossVectors(right,dir).normalize();
                 edgeObj.dir = dir;
                 edgeObj.length = length;
                 edgeObj.localUp = localUp;
@@ -1153,6 +1185,29 @@
       }
 
       init();
+
+      // -------------------------------------------------
+      // UI Toggle Functionality
+      // -------------------------------------------------
+      let uiHidden = false;
+      document.getElementById("uiToggleButton").addEventListener("click", function() {
+        uiHidden = !uiHidden;
+        let displayValue = uiHidden ? "none" : "";
+        let uiElements = ["info", "magGraph", "phaseModal", "bubbleLayer"];
+        uiElements.forEach(id => {
+          let el = document.getElementById(id);
+          if (el) {
+            el.style.display = displayValue;
+          }
+        });
+        // Toggle dat.GUI panel if it exists
+        let guiElements = document.querySelectorAll(".dg");
+        guiElements.forEach(el => {
+          el.style.display = displayValue;
+        });
+        // Update button text
+        this.textContent = uiHidden ? "Show UI" : "Hide UI";
+      });
     </script>
   </body>
 </html>
