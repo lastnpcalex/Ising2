@@ -3,21 +3,21 @@
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="UTF-8" />
-    <title>Toggle Ribbons Without Reinit</title>
+    <title>Toggle Ribbons Without Reinit with Selective Bloom</title>
 
     <!-- THREE.js Core + OrbitControls -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
 
     <!-- Postprocessing: EffectComposer, RenderPass, Bloom, Glitch -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/UnrealBloomPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/GlitchPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/shaders/LuminosityHighPassShader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/shaders/DigitalGlitch.js"></script>
+    <script src="js/EffectComposer.js"></script>
+    <script src="js/RenderPass.js"></script>
+    <script src="js/UnrealBloomPass.js"></script>
+    <script src="js/GlitchPass.js"></script>
+    <script src="js/CopyShader.js"></script>
+    <script src="js/ShaderPass.js"></script>
+    <script src="js/LuminosityHighPassShader.js"></script>
+    <script src="js/DigitalGlitch.js"></script>
 
     <!-- dat.GUI -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
@@ -114,6 +114,27 @@
         100% { opacity: 0; }
       }
     </style>
+    
+    <!-- Vertex Shader for final composite -->
+    <script id="vertexshader" type="x-shader/x-vertex">
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      }
+    </script>
+
+    <!-- Fragment Shader for final composite -->
+    <script id="fragmentshader" type="x-shader/x-fragment">
+      uniform sampler2D baseTexture;
+      uniform sampler2D bloomTexture;
+      varying vec2 vUv;
+      void main() {
+        vec4 base = texture2D( baseTexture, vUv );
+        vec4 bloom = texture2D( bloomTexture, vUv );
+        gl_FragColor = base + bloom;
+      }
+    </script>
   </head>
   <body>
     <div id="info">Vaporwave 3D Ising Model — drag to rotate, scroll to zoom</div>
@@ -146,15 +167,22 @@
       // Global Variables
       // -------------------------------------------------
       let scene, camera, renderer, controls;
-      let composer;
+      let composer, bloomComposer, finalComposer;
+      const darkMaterial = new THREE.MeshBasicMaterial({ color: "black" });
+      const materials = {}; // store original materials for darkening
+      const BLOOM_LAYER = 1; // dedicated bloom layer
 
       // Spheres & edges
       let nodes = []; // each { mesh, spin, basePos, pos, neighbors }
-      let edges = []; // each { i, j, object, posA, posB }
-
+      let edges = []; // each { i, j, object, posA, posB, (optional: dir, length, localUp) }
       let ribbonSparks = [];
 
+      // Simulation speed (used as loop iterations per simulation step)
       let simulationSpeed = 100;
+
+      // Add variables to control simulation update timing independently of rendering:
+      let lastSimUpdate = 0;
+      const simUpdateInterval = 100; // in milliseconds; adjust this to slow down spin updates
 
       // Off-screen canvas for background
       let bgCanvas, bgCtx, bgTexture;
@@ -214,7 +242,7 @@
 
       // Node range
       const MIN_NODES=10;
-      const MAX_NODES=3000;
+      const MAX_NODES=1500;
 
       // Colors
       const spinColorPositive=new THREE.Color(0xff77ff);
@@ -229,7 +257,7 @@
 
       // star texture
       let starTexture;
-      const STAR_TEXTURE_URL="https://threejs.org/examples/textures/sprites/spark1.png";
+      const STAR_TEXTURE_URL="https://canada1.discourse-cdn.com/flex035/uploads/threejs/original/3X/7/4/746a82ae37c272afcb7ddf02dfd10c71061c546a.png";
 
       // -------------------------------------------------
       // initTextures()
@@ -320,31 +348,46 @@
         camera.aspect=window.innerWidth/window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth,window.innerHeight);
-        composer.setSize(window.innerWidth,window.innerHeight);
+        bloomComposer.setSize(window.innerWidth,window.innerHeight);
+        finalComposer.setSize(window.innerWidth,window.innerHeight);
       }
 
       // -------------------------------------------------
       // setupPostProcessing()
       // -------------------------------------------------
       function setupPostProcessing(){
-        composer=new THREE.EffectComposer(renderer);
-        composer.setSize(window.innerWidth,window.innerHeight);
+        // Render pass for full scene
+        const renderScene=new THREE.RenderPass(scene, camera);
 
-        const renderPass=new THREE.RenderPass(scene,camera);
-        composer.addPass(renderPass);
-
+        // Bloom composer (only bloom layer objects will be rendered)
+        bloomComposer=new THREE.EffectComposer(renderer);
+        bloomComposer.setSize(window.innerWidth,window.innerHeight);
+        bloomComposer.renderToScreen = false;
+        bloomComposer.addPass(renderScene);
         const bloomPass=new THREE.UnrealBloomPass(
           new THREE.Vector2(window.innerWidth,window.innerHeight),
-          0.4,
-          0.3,
-          0.9
+          10, // strength
+          1, // radius
+          0.25 // threshold
         );
-        composer.addPass(bloomPass);
+        bloomComposer.addPass(bloomPass);
 
-        glitchPass=new THREE.GlitchPass();
-        glitchPass.goWild=false;
-        glitchPass.enabled=false;
-        composer.addPass(glitchPass);
+        // Final composer: composite full scene with bloom
+        finalComposer=new THREE.EffectComposer(renderer);
+        finalComposer.setSize(window.innerWidth,window.innerHeight);
+        finalComposer.addPass(renderScene);
+        const finalPass=new THREE.ShaderPass(
+          new THREE.ShaderMaterial({
+            uniforms: {
+              baseTexture: { value: null },
+              bloomTexture: { value: bloomComposer.renderTarget2.texture }
+            },
+            vertexShader: document.getElementById('vertexshader').textContent,
+            fragmentShader: document.getElementById('fragmentshader').textContent
+          }), "baseTexture"
+        );
+        finalPass.needsSwap = true;
+        finalComposer.addPass(finalPass);
       }
 
       // -------------------------------------------------
@@ -354,28 +397,25 @@
         const gui=new dat.GUI();
 
         const c1=gui.add(params,"coupling",0.1,5,0.1).name("Coupling(J)");
-        setTooltip(c1,"Interaction strength.");
+        setTooltip(c1,"Interaction strength between nodes.");
 
         const c2=gui.add(params,"temperature",0.1,10,0.1).name("Temperature(T)");
-        setTooltip(c2,"Thermal fluctuations.");
+        setTooltip(c2,"Thermal fluctuations. Lower values leads to fewer state changes.");
 
         const c3=gui.add(params,"field",-5,5,0.01).name("Field(H)");
-        setTooltip(c3,"External field.");
+        setTooltip(c3,"External field strength.");
 
         const c4=gui.add(params,"spinBias",-1,1,0.1).name("SpinBias");
-        setTooltip(c4,"Spin bias init.");
+        setTooltip(c4,"Bias for initial spin assignment.");
 
         const c5=gui.add(params,"neighborsCount",1,6,1).name("Neighbors");
-        setTooltip(c5,"Nearest neighbors.");
+        setTooltip(c5,"Number of nearest neighbors (on reinit).");
 
         const c6=gui.add(params,"numNodes",MIN_NODES,MAX_NODES,1).name("Nodes");
-        setTooltip(c6,"Total nodes.");
+        setTooltip(c6,"Total number of nodes (on reinit).");
 
         gui.add(params,"layout",[LayoutMode.RANDOM,LayoutMode.SPHERE,LayoutMode.CALABI])
           .name("Layout");
-
-        // const c7=gui.add(params,"density",0.1,3,0.1).name("Density");
-        // setTooltip(c7,"Scale node positions.");
 
         // Toggle lines vs ribbons (no reinit)
         const c8=gui.add(params,"useRibbons").name("Use Ribbons");
@@ -386,8 +426,6 @@
 
         gui.add(params,"showConnectors").name("Show Connectors");
 
-     
-
         const c9=gui.add(params,"threeSpin").name("3 States");
         setTooltip(c9,"Toggle 2 vs 3 spins.");
         c9.onChange(()=>params.reinitialize());
@@ -396,7 +434,8 @@
         gui.add(params,"glitchEnabled").name("Enable Glitch");
         gui.add(params,"showBubbles").name("Show Bubbles");
 
-        gui.add(params,"reinitialize").name("Reinitialize");
+        const c11 = gui.add(params, "reinitialize").name("Reinitialize");
+        setTooltip(c11, "Rebuild simulation with current parameters.");
       }
 
       // -------------------------------------------------
@@ -410,14 +449,24 @@
         // 2) remove star sprites
         ribbonSparks.forEach(s=>scene.remove(s.mesh));
         ribbonSparks=[];
-
         // 3) re-create each edge in the new style
         edges.forEach(e=>{
           if(params.useRibbons){
             // create wavy mesh
-            const ribbonMesh = createRibbonMesh(e.posA, e.posB);
+            const ribbonMesh = createRibbonMesh(e.posA,e.posB);
             scene.add(ribbonMesh);
             e.object=ribbonMesh;
+            // Recalculate and cache directional vectors for spark updates:
+            let dir = new THREE.Vector3().subVectors(e.posB, e.posA);
+            const length = dir.length();
+            dir.normalize();
+            let up = new THREE.Vector3(0,1,0);
+            if(Math.abs(dir.dot(up))>0.99) up.set(1,0,0);
+            const right = new THREE.Vector3().crossVectors(dir, up).normalize();
+            const localUp = new THREE.Vector3().crossVectors(right, dir).normalize();
+            e.dir = dir;
+            e.length = length;
+            e.localUp = localUp;
           } else {
             // create line
             const points=[e.posA,e.posB];
@@ -432,7 +481,6 @@
             e.object=lineObj;
           }
         });
-
         // 4) re-create star sprites
         createStarSprites();
       }
@@ -448,6 +496,7 @@
         ribbonSparks=[];
         magnetizationHistory=[];
 
+        // Create nodes
         for(let i=0;i<params.numNodes;i++){
           let spin;
           if(params.threeSpin){
@@ -499,19 +548,19 @@
           });
         }
 
-        // neighbors
+        // Compute neighbors using squared distance (avoids sqrt)
         for(let i=0;i<nodes.length;i++){
           let distArr=[];
           for(let j=0;j<nodes.length;j++){
             if(i===j) continue;
-            const d=nodes[i].pos.distanceTo(nodes[j].pos);
+            const d = nodes[i].pos.distanceToSquared(nodes[j].pos);
             distArr.push({idx:j,dist:d});
           }
           distArr.sort((a,b)=>a.dist-b.dist);
           nodes[i].neighbors=distArr.slice(0,params.neighborsCount).map(o=>o.idx);
         }
 
-        // edges
+        // Create edges (and cache vectors for ribbons)
         let drawnEdges=new Set();
         for(let i=0;i<nodes.length;i++){
           for(let j of nodes[i].neighbors){
@@ -535,12 +584,21 @@
                 obj=new THREE.Line(geo,mat);
                 scene.add(obj);
               }
-              edges.push({
-                i,j,
-                object:obj,
-                posA:nodes[i].pos,
-                posB:nodes[j].pos
-              });
+              const edgeObj = { i, j, object:obj, posA: nodes[i].pos, posB: nodes[j].pos };
+              if(params.useRibbons) {
+                // Precompute vectors for wavy ribbon spark updates:
+                let dir = new THREE.Vector3().subVectors(nodes[j].pos, nodes[i].pos);
+                const length = dir.length();
+                dir.normalize();
+                let up = new THREE.Vector3(0,1,0);
+                if(Math.abs(dir.dot(up))>0.99) up.set(1,0,0);
+                const right = new THREE.Vector3().crossVectors(dir, up).normalize();
+                const localUp = new THREE.Vector3().crossVectors(right, dir).normalize();
+                edgeObj.dir = dir;
+                edgeObj.length = length;
+                edgeObj.localUp = localUp;
+              }
+              edges.push(edgeObj);
             }
           }
         }
@@ -580,6 +638,9 @@
         return mesh;
       }
 
+      // -------------------------------------------------
+      // createRibbonMesh()
+      // -------------------------------------------------
       function createRibbonMesh(posA,posB){
         const segments=15;
         const width=0.2;
@@ -660,26 +721,34 @@
         return new THREE.Mesh(geometry,mat);
       }
 
+      // -------------------------------------------------
+      // createStarSprites()
+      // -------------------------------------------------
       function createStarSprites(){
-        edges.forEach((edge,idx)=>{
-          // 2 sparks
-          for(let k=0;k<2;k++){
-            const mat=new THREE.SpriteMaterial({
-              map:starTexture,
-              color:0xbbffff,
-              blending:THREE.AdditiveBlending,
-              transparent:true,
-              depthWrite:false
+        // Remove old sprites if any
+        ribbonSparks.forEach(s => scene.remove(s.mesh));
+        ribbonSparks = [];
+        edges.forEach((edge, idx) => {
+          // Create 2 sprites per edge
+          for(let k = 0; k < 2; k++){
+            const mat = new THREE.SpriteMaterial({
+              map: starTexture,
+              color: 0x1ad1ff,
+              blending: THREE.AdditiveBlending,
+              transparent: true,
+              depthWrite: false
             });
-            const sprite=new THREE.Sprite(mat);
-            sprite.scale.set(0.4,0.4,1);
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(0.5, 0.5, 1);
+            // Enable bloom for the sprite
+            sprite.layers.enable(BLOOM_LAYER);
             scene.add(sprite);
-
+            
             ribbonSparks.push({
               edgeIndex: idx,
               mesh: sprite,
               progress: Math.random(),
-              speed: 0.005 + 0.003*Math.random()
+              speed: 0.005 + 0.003 * Math.random()
             });
           }
         });
@@ -701,6 +770,17 @@
             const ribbonObj=createRibbonMesh(e.posA,e.posB);
             scene.add(ribbonObj);
             e.object=ribbonObj;
+            // Recompute and cache vectors for ribbons
+            let dir = new THREE.Vector3().subVectors(e.posB,e.posA);
+            const length = dir.length();
+            dir.normalize();
+            let up = new THREE.Vector3(0,1,0);
+            if(Math.abs(dir.dot(up))>0.99) up.set(1,0,0);
+            const right = new THREE.Vector3().crossVectors(dir,up).normalize();
+            const localUp = new THREE.Vector3().crossVectors(right,dir).normalize();
+            e.dir = dir;
+            e.length = length;
+            e.localUp = localUp;
           } else {
             const points=[e.posA,e.posB];
             const geo=new THREE.BufferGeometry().setFromPoints(points);
@@ -714,10 +794,9 @@
             e.object=line;
           }
         });
-        // remove old sprites
+        // remove old sprites and create new ones
         ribbonSparks.forEach(s=>scene.remove(s.mesh));
         ribbonSparks=[];
-        // create new sprites
         createStarSprites();
       }
 
@@ -725,17 +804,21 @@
       // simulationStep()
       // -------------------------------------------------
       function simulationStep(){
+        const nLen = nodes.length;
         for(let step=0; step<simulationSpeed; step++){
-          const i=Math.floor(Math.random()*nodes.length);
-          const node=nodes[i];
-          const s=node.spin;
+          const i = Math.floor(Math.random()*nLen);
+          const node = nodes[i];
+          const s = node.spin;
           let sumN=0;
-          node.neighbors.forEach(j=>sumN+=nodes[j].spin);
+          // iterate over neighbors (using a cached property)
+          node.neighbors.forEach(j=>{
+            sumN+=nodes[j].spin;
+          });
 
           if(!params.threeSpin){
             const deltaE=2*s*(params.coupling*sumN+params.field);
-            if(deltaE<=0||Math.random()<Math.exp(-deltaE/params.temperature)){
-              node.spin=-s;
+            if(deltaE<=0 || Math.random()<Math.exp(-deltaE/params.temperature)){
+              node.spin = -s;
               updateNodeAppearance(node);
               maybeTriggerGlitch();
               maybeShowSpeechBubble(node);
@@ -743,10 +826,10 @@
           } else {
             const possible=[-1,0,1].filter(v=>v!==s);
             const candidate=possible[Math.floor(Math.random()*possible.length)];
-            const delta=candidate-s;
-            const deltaE=-params.coupling*delta*sumN - params.field*delta;
-            if(deltaE<=0||Math.random()<Math.exp(-deltaE/params.temperature)){
-              node.spin=candidate;
+            const delta = candidate - s;
+            const deltaE = -params.coupling*delta*sumN - params.field*delta;
+            if(deltaE<=0 || Math.random()<Math.exp(-deltaE/params.temperature)){
+              node.spin = candidate;
               updateNodeAppearance(node);
               maybeTriggerGlitch();
               maybeShowSpeechBubble(node);
@@ -761,14 +844,14 @@
       function updateNodeAppearance(node){
         if(!params.threeSpin){
           node.mesh.material.color.copy(node.spin>0?spinColorPositive:spinColorNegative);
-          node.mesh.children[0].material.map=textureMap2[node.spin.toString()];
+          node.mesh.children[0].material.map = textureMap2[node.spin.toString()];
         } else {
           if(node.spin===1) node.mesh.material.color.copy(spinColorPositive);
           else if(node.spin===-1) node.mesh.material.color.copy(spinColorNegative);
           else node.mesh.material.color.copy(spinColorNeutral);
-          node.mesh.children[0].material.map=textureMap3[node.spin.toString()];
+          node.mesh.children[0].material.map = textureMap3[node.spin.toString()];
         }
-        node.mesh.children[0].material.needsUpdate=true;
+        node.mesh.children[0].material.needsUpdate = true;
       }
 
       // -------------------------------------------------
@@ -828,47 +911,60 @@
       }
 
       // -------------------------------------------------
-      // updateSparks()
+      // updateSparks() - Updated to hide stars near spheres
       // -------------------------------------------------
       function updateSparks(){
-        ribbonSparks.forEach(s=>{
-          s.progress+=s.speed;
-          if(s.progress>1)s.progress=0;
-          let e=edges[s.edgeIndex];
-          if(params.useRibbons){
-            s.mesh.position.copy(getWavyRibbonPosition(e.posA,e.posB,s.progress));
+        // For each spark update its progress and position.
+        ribbonSparks.forEach(s => {
+          s.progress += s.speed;
+          if (s.progress > 1) s.progress = 0;
+          
+          let e = edges[s.edgeIndex];
+          if (params.useRibbons) {
+            s.mesh.position.copy( getWavyRibbonPosition(e, s.progress) );
           } else {
-            // linear interpolation
-            let dir=new THREE.Vector3().subVectors(e.posB,e.posA);
-            let newPos=new THREE.Vector3().copy(e.posA).addScaledVector(dir,s.progress);
+            let dir = new THREE.Vector3().subVectors(e.posB, e.posA);
+            let newPos = new THREE.Vector3().copy(e.posA).addScaledVector(dir, s.progress);
             s.mesh.position.copy(newPos);
           }
-          // flicker
-          let mat=s.mesh.material;
-          mat.opacity=0.6+0.4*Math.random();
-          let sc=0.3+0.4*Math.random();
-          s.mesh.scale.set(sc,sc,sc);
+          
+          // Check if the spark is close to any sphere (node)
+          let hide = false;
+          for (let n of nodes) {
+            if (s.mesh.position.distanceTo(n.mesh.position) < 1.0) {
+              hide = true;
+              break;
+            }
+          }
+          
+          // Toggle visibility based on collision detection
+          s.mesh.visible = !hide;
+          
+          // Optionally, update opacity if not hidden
+          let mat = s.mesh.material;
+          if (!hide) {
+            mat.opacity = 0.6 + 0.4 * Math.random();
+          } else {
+            mat.opacity = 0;
+          }
+          
+          // Random scale for flicker effect
+          let sc = 0.05 + 0.2 * Math.random();
+          s.mesh.scale.set(sc, sc, sc);
         });
       }
 
-      function getWavyRibbonPosition(posA,posB,t){
-        const waveAmp=0.5;
-        const waveFreq=2;
-
-        let dir=new THREE.Vector3().subVectors(posB,posA);
-        const length=dir.length();
-        dir.normalize();
-
-        let up=new THREE.Vector3(0,1,0);
-        if(Math.abs(dir.dot(up))>0.99) up.set(1,0,0);
-        let right=new THREE.Vector3().crossVectors(dir,up).normalize();
-        let localUp=new THREE.Vector3().crossVectors(right,dir).normalize();
-
-        let center=new THREE.Vector3().copy(posA)
-          .addScaledVector(dir,length*t);
-
-        let wave=Math.sin(t*Math.PI*waveFreq)*waveAmp;
-        center.addScaledVector(localUp,wave);
+      // -------------------------------------------------
+      // getWavyRibbonPosition()
+      // -------------------------------------------------
+      // This version uses the cached directional vectors from the edge.
+      function getWavyRibbonPosition(edge, t){
+        const waveAmp = 0.5;
+        const waveFreq = 2;
+        let center = new THREE.Vector3().copy(edge.posA)
+          .addScaledVector(edge.dir, edge.length*t);
+        let wave = Math.sin(t*Math.PI*waveFreq)*waveAmp;
+        center.addScaledVector(edge.localUp, wave);
         return center;
       }
 
@@ -876,63 +972,63 @@
       // updateMagnetization()
       // -------------------------------------------------
       function updateMagnetization(){
-        let total=0;
+        let total = 0;
         for(let i=0;i<nodes.length;i++){
-          total+=nodes[i].spin;
+          total += nodes[i].spin;
         }
-        let m=total/nodes.length;
+        let m = total/nodes.length;
         magnetizationHistory.push(m);
-        if(magnetizationHistory.length>maxHistoryLength){
+        if(magnetizationHistory.length > maxHistoryLength){
           magnetizationHistory.shift();
         }
-        smoothedMag+=0.01*(m-smoothedMag);
+        smoothedMag += 0.01*(m - smoothedMag);
         updateBackgroundGradient(smoothedMag);
         drawGraph();
         detectPhaseChange(smoothedMag);
       }
 
       function updateBackgroundGradient(mVal){
-        const t=(mVal+1)/2;
-        const topColor=nightTop.clone().lerp(dayTop,t);
-        const bottomColor=nightBottom.clone().lerp(dayBottom,t);
+        const t = (mVal+1)/2;
+        const topColor = nightTop.clone().lerp(dayTop,t);
+        const bottomColor = nightBottom.clone().lerp(dayBottom,t);
         bgCtx.clearRect(0,0,bgCanvas.width,bgCanvas.height);
-        let grad=bgCtx.createLinearGradient(0,0,0,bgCanvas.height);
+        let grad = bgCtx.createLinearGradient(0,0,0,bgCanvas.height);
         grad.addColorStop(0,"#"+topColor.getHexString());
         grad.addColorStop(1,"#"+bottomColor.getHexString());
-        bgCtx.fillStyle=grad;
+        bgCtx.fillStyle = grad;
         bgCtx.fillRect(0,0,bgCanvas.width,bgCanvas.height);
-        bgTexture.needsUpdate=true;
+        bgTexture.needsUpdate = true;
       }
 
       // -------------------------------------------------
       // drawGraph()
       // -------------------------------------------------
       function drawGraph(){
-        let w=graphCanvas.width,h=graphCanvas.height;
+        let w = graphCanvas.width, h = graphCanvas.height;
         graphCtx.clearRect(0,0,w,h);
-        graphCtx.strokeStyle="#fff";
-        graphCtx.lineWidth=1;
+        graphCtx.strokeStyle = "#fff";
+        graphCtx.lineWidth = 1;
 
         graphCtx.beginPath();
-        // axes
+        // Draw axes
         graphCtx.moveTo(30,10);
         graphCtx.lineTo(30,90);
         graphCtx.lineTo(280,90);
         graphCtx.stroke();
 
-        graphCtx.fillStyle="#fff";
-        graphCtx.font="10px sans-serif";
+        graphCtx.fillStyle = "#fff";
+        graphCtx.font = "10px sans-serif";
         graphCtx.fillText("1",5,15);
         graphCtx.fillText("0",5,50);
         graphCtx.fillText("-1",5,90);
 
         graphCtx.beginPath();
-        graphCtx.strokeStyle="lime";
-        let len=magnetizationHistory.length;
+        graphCtx.strokeStyle = "lime";
+        let len = magnetizationHistory.length;
         for(let i=0;i<len;i++){
-          let x=30+(i/(maxHistoryLength-1))*(280-30);
-          let mag=magnetizationHistory[i];
-          let y=90-((mag+1)*80)/2;
+          let x = 30 + (i/(maxHistoryLength-1))*(280-30);
+          let mag = magnetizationHistory[i];
+          let y = 90 - ((mag+1)*80)/2;
           if(i===0) graphCtx.moveTo(x,y);
           else graphCtx.lineTo(x,y);
         }
@@ -957,7 +1053,7 @@
       function triggerPhasePopup(phaseDescription){
         const modal=document.getElementById("phaseModal");
         const txt=document.getElementById("phaseModalText");
-        txt.textContent="Congratulations! You have entered: "+phaseDescription;
+        txt.textContent="Congratulations! You have entered: " + phaseDescription;
         modal.style.display="flex";
       }
 
@@ -975,31 +1071,66 @@
       }
 
       // -------------------------------------------------
+      // updateSpriteOffsets()
+      // -------------------------------------------------
+      function updateSpriteOffsets(){
+        const camPos = camera.position;
+        const tempVec = new THREE.Vector3();
+        nodes.forEach(n => {
+          const sprite = n.mesh.children[0];
+          if (!sprite) return;
+          n.mesh.getWorldPosition(tempVec);
+          // Compute offset as camera position minus world position:
+          const offsetDir = new THREE.Vector3().subVectors(camPos, tempVec).normalize();
+          sprite.position.copy(offsetDir.multiplyScalar(0.6));
+        });
+      }
+
+      // -------------------------------------------------
+      // Darken non-bloom objects
+      // -------------------------------------------------
+      function darkenNonBloomed(obj) {
+        if (obj.isMesh && obj.layers.test(BLOOM_LAYER) === false) {
+          materials[obj.uuid] = obj.material;
+          obj.material = darkMaterial;
+        }
+      }
+
+      function restoreMaterial(obj) {
+        if (materials[obj.uuid]) {
+          obj.material = materials[obj.uuid];
+          delete materials[obj.uuid];
+        }
+      }
+
+      // -------------------------------------------------
       // animate()
       // -------------------------------------------------
       function animate(){
         requestAnimationFrame(animate);
 
-        simulationStep();
+        // Update simulation only when the simulation interval has elapsed.
+        const currentTime = performance.now();
+        if (currentTime - lastSimUpdate > simUpdateInterval) {
+          simulationStep();
+          lastSimUpdate = currentTime;
+        }
+
         updateMagnetization();
         updateSpriteOffsets();
         updateSparks();
 
-        // Show/Hide connectors
+        // Toggle visibility of connectors and faces
         edges.forEach(e=>{
-          e.object.visible=params.showConnectors;
+          e.object.visible = params.showConnectors;
         });
-        // If you want to also hide star sprites => do this:
-        // ribbonSparks.forEach(s=> s.mesh.visible = params.showConnectors );
-
-        // Show/hide face sprites
         nodes.forEach(n=>{
           if(n.mesh.children[0]){
-            n.mesh.children[0].visible=params.showFaces;
+            n.mesh.children[0].visible = params.showFaces;
           }
         });
 
-        // glitch mgmt
+        // Glitch management
         if(glitchActive){
           glitchTimer--;
           if(glitchTimer<=0){
@@ -1008,20 +1139,17 @@
           }
         }
 
-        controls.update();
-        composer.render();
-      }
+        // Render bloom pass: darken non-bloom objects, render bloomComposer, then restore materials
+        scene.traverse(darkenNonBloomed);
+        camera.layers.set(BLOOM_LAYER);
+        bloomComposer.render();
+        camera.layers.set(0);
+        scene.traverse(restoreMaterial);
 
-      function updateSpriteOffsets(){
-        nodes.forEach(n=>{
-          const sprite=n.mesh.children[0];
-          if(!sprite)return;
-          let worldPos=new THREE.Vector3();
-          n.mesh.getWorldPosition(worldPos);
-          let offsetDir=new THREE.Vector3().subVectors(camera.position,worldPos).normalize();
-          let offsetDist=0.6;
-          sprite.position.copy(offsetDir.multiplyScalar(offsetDist));
-        });
+        // Render final composite: full scene + bloom
+        finalComposer.render();
+
+        controls.update();
       }
 
       init();
