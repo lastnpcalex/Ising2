@@ -6,20 +6,13 @@
   <title>SpinGlass Market + Ising Model</title>
   <style>
     body, html {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: #000;
+      margin: 0; padding: 0; overflow: hidden; background: #000;
     }
-    #ising-container,
-    #react-root {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+    #ising-container, #react-root {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
     }
-    /* Let only interactive parts in the React overlay capture pointer events */
+    /* only allow interactive bits in React overlay to capture pointer events */
     #react-root { pointer-events: none; }
   </style>
 </head>
@@ -30,7 +23,7 @@
   <!-- React + Recharts overlay -->
   <div id="react-root"></div>
 
-  <!-- THREE.js core + examples -->
+  <!-- THREE.js + Controls + Postprocessing -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/EffectComposer.js"></script>
@@ -38,26 +31,26 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/UnrealBloomPass.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/GlitchPass.js"></script>
 
-  <!-- React + ReactDOM UMD -->
+  <!-- React / ReactDOM UMD -->
   <script src="https://cdn.jsdelivr.net/npm/react@17/umd/react.development.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@17/umd/react-dom.development.js"></script>
 
-  <!-- PropTypes (required by Recharts) -->
+  <!-- PropTypes (needed by Recharts’ propTypes) -->
   <script src="https://cdn.jsdelivr.net/npm/prop-types@15.8.1/prop-types.min.js"></script>
 
   <!-- Recharts UMD -->
   <script src="https://cdn.jsdelivr.net/npm/recharts/umd/Recharts.min.js"></script>
 
-  <!-- Lucide React UMD -->
-  <script src="https://cdn.jsdelivr.net/npm/lucide-react/dist/umd/lucide-react.umd.js"></script>
+  <!-- Lucide React UMD (exposes `window.LucideReact`) -->
+  <script src="https://unpkg.com/lucide-react/dist/umd/lucide-react.min.js"></script> <!-- :contentReference[oaicite:0]{index=0} -->
 
-  <!-- Babel standalone for JSX -->
+  <!-- Babel standalone for JSX transpilation -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <!-- Initialize the Ising simulator -->
   <script type="module" src="./isingModel.js"></script>
 
-  <!-- SpinGlassMarket overlay in JSX, transpiled by Babel -->
+  <!-- SpinGlassMarket overlay, written in JSX -->
   <script type="text/babel" data-presets="react">
     const { useState, useEffect, useRef } = React;
     const {
@@ -76,14 +69,13 @@
       const timeoutRef = useRef();
 
       useEffect(() => {
-        // initial memetic stocks
         setMemeStocks([
           { id:'DADA', name:'Digital Dadaism', price:420.69, change:4.20, volume:80984, color:'#ff2a6d' },
-          { id:'MEME', name:'Meme Economy', price:69.42, change:-2.10, volume:431102, color:'#05d9e8' },
+          { id:'MEME', name:'Meme Economy', price:69.42,  change:-2.10, volume:431102, color:'#05d9e8' },
           { id:'DOOM', name:'Digital Doom Scrolling', price:13.37, change:1.37, volume:301293, color:'#d1f7ff' },
-          { id:'VIBE', name:'Aesthetic Vibe Check', price:101.01, change:10.01, volume:89214, color:'#005678' },
-          { id:'NULL', name:'Null Hypothesis', price:404.04, change:-4.04, volume:65341, color:'#ff9500' },
-          { id:'FOMO', name:'Fear of Missing Out', price:999.99, change:9.99, volume:532098, color:'#9d00ff' },
+          { id:'VIBE', name:'Aesthetic Vibe Check', price:101.01, change:10.01, volume:89214,  color:'#005678' },
+          { id:'NULL', name:'Null Hypothesis', price:404.04, change:-4.04, volume:65341,  color:'#ff9500' },
+          { id:'FOMO', name:'Fear of Missing Out', price:999.99, change:9.99,  volume:532098, color:'#9d00ff' },
           { id:'ALGO', name:'Algorithmic Consciousness', price:256.00, change:2.56, volume:777777, color:'#00ff9f' },
           { id:'SYNC', name:'Synchronicity Protocol', price:333.33, change:-3.33, volume:232323, color:'#ff00a0' },
           { id:'LORE', name:'Digital Folklore', price:42.00, change:-0.42, volume:101010, color:'#fffc00' },
@@ -108,11 +100,11 @@
           const move = (Math.random() - 0.5) * 0.03 * val;
           val = Math.max(0, val + move);
           return {
-            time: i,
-            open: val,
-            close: val * (1 + (Math.random() - 0.5) * 0.02),
-            high: val * 1.01,
-            low: val * 0.99,
+            time:  i,
+            open:  val,
+            close: val * (1 + (Math.random()-0.5) * 0.02),
+            high:  val * 1.01,
+            low:   val * 0.99,
             volume: Math.floor(Math.random() * 10000)
           };
         });
@@ -120,16 +112,15 @@
 
       function simulate() {
         setMarketData(prev => {
-          const last = prev[prev.length - 1] || { close: 300, time: 0 };
+          const last = prev[prev.length - 1] || { close:300, time:0 };
           const vol = 0.04 * (1 + glitchIntensity);
-          const mv = (Math.random() - 0.5) * vol * last.close;
+          const mv  = (Math.random() - 0.5) * vol * last.close;
           const close = Math.max(0, last.close + mv);
           return [
             ...prev.slice(1),
             {
               time: last.time + 1,
-              open: last.close,
-              close,
+              open: last.close, close,
               high: Math.max(last.close, close) * 1.01 * (1 + glitchIntensity * 0.1),
               low:  Math.min(last.close, close) * 0.99,
               volume: Math.floor(Math.random() * 10000 * (1 + glitchIntensity))
@@ -141,7 +132,7 @@
           return {
             ...s,
             change: +d.toFixed(2),
-            price: +(s.price * (1 + (d/100) * 0.1)).toFixed(2),
+            price: +(s.price * (1 + d/100 * 0.1)).toFixed(2),
             volume: Math.floor(s.volume * (0.95 + Math.random() * 0.1))
           };
         }));
@@ -173,7 +164,7 @@
           <div className="relative h-64 mb-6 p-2 border border-pink-500 bg-black bg-opacity-30 rounded pointer-events-auto">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={marketData}>
-                <CartesianGrid stroke="rgba(255,255,255,0.1)" strokeDasharray="3 3" />
+                <CartesianGrid stroke="rgba(255,255,255,0.1)" strokeDasharray="3 3"/>
                 <XAxis dataKey="time" tick={false}/>
                 <YAxis domain={['auto','auto']} tick={{ fill:'#9d00ff' }}/>
                 <Tooltip contentStyle={{ background:'rgba(0,0,0,0.8)', borderColor:'#ff2a6d' }}/>
@@ -183,8 +174,8 @@
                     <stop offset="95%" stopColor="#ff2a6d" stopOpacity={0.2}/>
                   </linearGradient>
                 </defs>
-                <Area type="monotone" dataKey="close" stroke="#05d9e8"
-                      fill="url(#grad)" isAnimationActive={false}/>
+                <Area type="monotone" dataKey="close"
+                      stroke="#05d9e8" fill="url(#grad)" isAnimationActive={false}/>
               </AreaChart>
             </ResponsiveContainer>
             {glitchIntensity > 0.6 && (
@@ -200,7 +191,7 @@
           {/* Memetic Stocks */}
           <div className="pointer-events-auto mb-6 border border-purple-500 bg-black bg-opacity-40 rounded overflow-auto max-h-64">
             <div className="flex items-center p-2 bg-gradient-to-r from-purple-900 to-pink-900">
-              <GitBranch className="mr-2 text-purple-300" />
+              <GitBranch className="mr-2 text-purple-300"/>
               <span className="font-bold">SPIN GLASS MEMETIC STOCKS</span>
             </div>
             <table className="w-full text-xs">
@@ -239,7 +230,7 @@
                   <Code size={12} className="mr-1 text-cyan-500"/>
                   <span className="text-gray-200">{Math.random().toString(16).substr(2,4)}</span>
                   <span>:</span>
-                  <span className={Math.random() < 0.5 ? 'text-pink-400' : 'text-cyan-400'}>
+                  <span className={Math.random() < 0.5 ? 'text-pink-400':'text-cyan-400'}>
                     {(Math.random()*1000|0)}
                   </span>
                 </div>
