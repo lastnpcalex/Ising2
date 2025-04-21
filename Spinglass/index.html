@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>SpinGlass Market + Ising Model</title>
+    <style>
+      body, html {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #000;
+      }
+      #ising-container {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+      }
+      #react-root {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        pointer-events: none; /* pass mouse events to OrbiControls */
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ising-container"></div>
+    <div id="react-root"></div>
+
+    <!-- Three.js and post‑processing (r132) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/GlitchPass.js"></script>
+
+    <!-- React / ReactDOM via Skypack -->
+    <script type="module">
+      import React from 'https://cdn.skypack.dev/react';
+      import ReactDOM from 'https://cdn.skypack.dev/react-dom';
+      import { initIsingSimulator } from './isingModel.js';
+      import SpinGlassMarket from './spinGlassMarket.js';
+
+      // 1) start the Ising background...
+      initIsingSimulator(document.getElementById('ising-container'));
+
+      // 2) render the market overlay
+      ReactDOM.render(
+        React.createElement(SpinGlassMarket),
+        document.getElementById('react-root')
+      );
+    </script>
+  </body>
+</html>
