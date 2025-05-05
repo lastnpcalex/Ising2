@@ -27,7 +27,7 @@
       position: absolute;
       top: 10px;
       left: 10px;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.7);
       padding: 10px;
       border-radius: 5px;
       font-size: 14px;
@@ -37,11 +37,18 @@
       position: absolute;
       top: 10px;
       right: 10px;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.7);
       padding: 10px;
       border-radius: 5px;
       font-size: 14px;
       z-index: 1000;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    #simulationControls h3 {
+      margin-top: 10px;
+      margin-bottom: 5px;
+      color: #aaddff;
     }
     #simulationControls button {
       background: #4a5fa3;
@@ -55,23 +62,39 @@
     #simulationControls button:hover {
       background: #677bc4;
     }
+    #simulationControls button.active {
+      background: #ff77aa;
+    }
+    .control-group {
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
     #utilityGraph {
       position: absolute;
       bottom: 10px;
       right: 10px;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.7);
       padding: 10px;
       border-radius: 5px;
     }
     canvas {
       display: block;
     }
-    .smile-1 {
+    .emoji-face {
       position: absolute;
       font-size: 24px;
       color: white;
       text-shadow: 0 0 3px black;
       opacity: 0.9;
+    }
+    label {
+      display: block;
+      margin-top: 5px;
+      margin-bottom: 3px;
+    }
+    input[type="range"] {
+      width: 100%;
     }
   </style>
 </head>
@@ -88,20 +111,60 @@
   
   <div id="simulationControls">
     <h3>Simulation Controls</h3>
-    <button id="pauseBtn">Pause</button>
-    <button id="resetBtn">Reset</button>
-    <button id="shockBtn">Add Income Shock</button>
-    <div>
+    <div class="control-group">
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset</button>
+      <button id="shockBtn">Add Income Shock</button>
+      
       <label for="simSpeedSlider">Simulation Speed:</label>
       <input type="range" id="simSpeedSlider" min="1" max="20" value="5">
-    </div>
-    <div>
+      
       <label for="altruismStrength">Altruism Strength:</label>
       <input type="range" id="altruismStrength" min="0.1" max="2" step="0.1" value="1">
-    </div>
-    <div>
+      
       <label for="incomeInequalitySlider">Income Inequality:</label>
-      <input type="range" id="incomeInequalitySlider" min="0.1" max="3" step="0.1" value="1">
+      <input type="range" id="incomeInequalitySlider" min="0.1" max="5" step="0.1" value="3">
+      
+      <label for="agentCountSlider">Number of Agents:</label>
+      <input type="range" id="agentCountSlider" min="10" max="50" step="1" value="30">
+    </div>
+    
+    <h3>Display Options</h3>
+    <div class="control-group">
+      <label for="nodeSizeSlider">Node Size:</label>
+      <input type="range" id="nodeSizeSlider" min="0.5" max="3" step="0.1" value="1">
+      
+      <label for="connectionWidthSlider">Connection Width:</label>
+      <input type="range" id="connectionWidthSlider" min="0.5" max="3" step="0.1" value="1">
+      
+      <div>
+        <label for="showEmojisToggle">Show Faces:</label>
+        <input type="checkbox" id="showEmojisToggle" checked>
+      </div>
+      
+      <div>
+        <label for="showTransfersToggle">Show Transfers:</label>
+        <input type="checkbox" id="showTransfersToggle" checked>
+      </div>
+      
+      <div>
+        <label for="showConnectionsToggle">Show Connections:</label>
+        <input type="checkbox" id="showConnectionsToggle" checked>
+      </div>
+    </div>
+    
+    <h3>Visualization Mode</h3>
+    <div class="control-group">
+      <button id="colorByUtilityBtn" class="active">Color by Utility</button>
+      <button id="colorByIncomeBtn">Color by Income</button>
+      <button id="colorByTransfersBtn">Color by Transfers</button>
+    </div>
+    
+    <h3>Network Layout</h3>
+    <div class="control-group">
+      <button id="layoutCircleBtn" class="active">Circle</button>
+      <button id="layoutGridBtn">Grid</button>
+      <button id="layoutRandomBtn">Random</button>
     </div>
   </div>
   
@@ -122,21 +185,40 @@
     let inequalityHistory = [];
     let transferParticles = [];
     
+    // Display parameters
+    let displayParams = {
+      nodeSize: 1.0,
+      connectionWidth: 1.0,
+      showEmojis: true,
+      showTransfers: true,
+      showConnections: true,
+      colorMode: 'utility', // 'utility', 'income', 'transfers'
+      layout: 'circle' // 'circle', 'grid', 'random'
+    };
+    
     // Simulation parameters
     let params = {
       numAgents: 30,
       altruismStrength: 1.0,
-      incomeInequality: 1.0,
+      incomeInequality: 3.0, // Starting with higher inequality to show more variation
       simulationSpeed: 5,
       iterationCount: 0,
       transferCount: 0,
       isPaused: false
     };
     
-    // Colors
-    const highUtilityColor = new THREE.Color(0xff77ff);
-    const medUtilityColor = new THREE.Color(0xffff77);
-    const lowUtilityColor = new THREE.Color(0x77ffff);
+    // Colors for different utility levels
+    const highUtilityColor = new THREE.Color(0xff77ff); // Pink - happy
+    const medUtilityColor = new THREE.Color(0xffff77);  // Yellow - neutral
+    const lowUtilityColor = new THREE.Color(0x77ffff);  // Blue - sad
+    
+    // For income coloring
+    const lowIncomeColor = new THREE.Color(0x3333ff);   // Blue - poor
+    const highIncomeColor = new THREE.Color(0xff3333);  // Red - rich
+    
+    // For transfer coloring
+    const lowTransferColor = new THREE.Color(0x33ff33); // Green - low activity
+    const highTransferColor = new THREE.Color(0xffaa33); // Orange - high activity
     
     // Initialize scene
     function init() {
@@ -211,6 +293,301 @@
       document.getElementById('incomeInequalitySlider').addEventListener('input', (e) => {
         params.incomeInequality = parseFloat(e.target.value);
       });
+      
+      // Agent count slider
+      document.getElementById('agentCountSlider').addEventListener('input', (e) => {
+        params.numAgents = parseInt(e.target.value);
+      });
+      
+      // Node size slider
+      document.getElementById('nodeSizeSlider').addEventListener('input', (e) => {
+        displayParams.nodeSize = parseFloat(e.target.value);
+        updateAgentSizes();
+      });
+      
+      // Connection width slider
+      document.getElementById('connectionWidthSlider').addEventListener('input', (e) => {
+        displayParams.connectionWidth = parseFloat(e.target.value);
+        updateConnectionWidths();
+      });
+      
+      // Show emojis toggle
+      document.getElementById('showEmojisToggle').addEventListener('change', (e) => {
+        displayParams.showEmojis = e.target.checked;
+        updateEmojisVisibility();
+      });
+      
+      // Show transfers toggle
+      document.getElementById('showTransfersToggle').addEventListener('change', (e) => {
+        displayParams.showTransfers = e.target.checked;
+      });
+      
+      // Show connections toggle
+      document.getElementById('showConnectionsToggle').addEventListener('change', (e) => {
+        displayParams.showConnections = e.target.checked;
+        updateConnectionsVisibility();
+      });
+      
+      // Color mode buttons
+      document.getElementById('colorByUtilityBtn').addEventListener('click', () => {
+        displayParams.colorMode = 'utility';
+        setActiveButton('colorByUtilityBtn', ['colorByIncomeBtn', 'colorByTransfersBtn']);
+        updateAgentColors();
+      });
+      
+      document.getElementById('colorByIncomeBtn').addEventListener('click', () => {
+        displayParams.colorMode = 'income';
+        setActiveButton('colorByIncomeBtn', ['colorByUtilityBtn', 'colorByTransfersBtn']);
+        updateAgentColors();
+      });
+      
+      document.getElementById('colorByTransfersBtn').addEventListener('click', () => {
+        displayParams.colorMode = 'transfers';
+        setActiveButton('colorByTransfersBtn', ['colorByUtilityBtn', 'colorByIncomeBtn']);
+        updateAgentColors();
+      });
+      
+      // Layout buttons
+      document.getElementById('layoutCircleBtn').addEventListener('click', () => {
+        displayParams.layout = 'circle';
+        setActiveButton('layoutCircleBtn', ['layoutGridBtn', 'layoutRandomBtn']);
+        repositionAgents();
+      });
+      
+      document.getElementById('layoutGridBtn').addEventListener('click', () => {
+        displayParams.layout = 'grid';
+        setActiveButton('layoutGridBtn', ['layoutCircleBtn', 'layoutRandomBtn']);
+        repositionAgents();
+      });
+      
+      document.getElementById('layoutRandomBtn').addEventListener('click', () => {
+        displayParams.layout = 'random';
+        setActiveButton('layoutRandomBtn', ['layoutCircleBtn', 'layoutGridBtn']);
+        repositionAgents();
+      });
+    }
+    
+    // Helper to set active button
+    function setActiveButton(activeId, inactiveIds) {
+      document.getElementById(activeId).classList.add('active');
+      inactiveIds.forEach(id => {
+        document.getElementById(id).classList.remove('active');
+      });
+    }
+    
+    // Update agent sizes
+    function updateAgentSizes() {
+      agents.forEach(agent => {
+        // Base size scaled by display parameter
+        let baseScale = displayParams.nodeSize;
+        
+        // Additional scaling based on utility or other factors
+        let utilityScale = 0.8 + (agent.utility / 2) * 0.4; // Utility is typically 0-2
+        
+        // Apply scale
+        let finalScale = baseScale * utilityScale;
+        agent.mesh.scale.set(finalScale, finalScale, finalScale);
+      });
+    }
+    
+    // Update connection widths
+    function updateConnectionWidths() {
+      connections.forEach(conn => {
+        // Each connection's line has a material we can update
+        if (conn.object && conn.object.material) {
+          // Base width scaled by display parameter
+          let scaledWidth = displayParams.connectionWidth * 2; // Multiplier to make it visible
+          conn.object.material.linewidth = scaledWidth; // Note: this has limited browser support
+          
+          // We can also update the opacity to make it more visible
+          conn.object.material.opacity = 0.4 * displayParams.connectionWidth;
+        }
+      });
+    }
+    
+    // Update emojis visibility
+    function updateEmojisVisibility() {
+      agents.forEach(agent => {
+        if (agent.emojiElement) {
+          agent.emojiElement.style.display = displayParams.showEmojis ? 'block' : 'none';
+        }
+      });
+    }
+    
+    // Update connections visibility
+    function updateConnectionsVisibility() {
+      connections.forEach(conn => {
+        if (conn.object) {
+          conn.object.visible = displayParams.showConnections;
+        }
+      });
+    }
+    
+    // Reposition agents based on layout
+    function repositionAgents() {
+      if (displayParams.layout === 'circle') {
+        agents.forEach((agent, i) => {
+          const angle = (i / agents.length) * Math.PI * 2;
+          const radius = 15 + (Math.random() - 0.5) * 5;
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          const z = (Math.random() - 0.5) * 5;
+          
+          // Animate position change
+          animatePosition(agent, new THREE.Vector3(x, y, z));
+        });
+      } 
+      else if (displayParams.layout === 'grid') {
+        const gridSize = Math.ceil(Math.sqrt(agents.length));
+        const spacing = 30 / gridSize;
+        
+        agents.forEach((agent, i) => {
+          const row = Math.floor(i / gridSize);
+          const col = i % gridSize;
+          
+          const x = (col - gridSize/2 + 0.5) * spacing;
+          const y = (row - gridSize/2 + 0.5) * spacing;
+          const z = (Math.random() - 0.5) * 3;
+          
+          // Animate position change
+          animatePosition(agent, new THREE.Vector3(x, y, z));
+        });
+      }
+      else if (displayParams.layout === 'random') {
+        agents.forEach(agent => {
+          const x = (Math.random() - 0.5) * 30;
+          const y = (Math.random() - 0.5) * 30;
+          const z = (Math.random() - 0.5) * 10;
+          
+          // Animate position change
+          animatePosition(agent, new THREE.Vector3(x, y, z));
+        });
+      }
+      
+      // Update connections after a brief delay to allow agent positions to update
+      setTimeout(updateConnections, 1000);
+    }
+    
+    // Animate position change
+    function animatePosition(agent, newPosition) {
+      const originalPosition = agent.position.clone();
+      const startTime = Date.now();
+      const duration = 1000; // Animation duration in ms
+      
+      function animate() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Ease in-out function for smoother animation
+        const easedProgress = progress < 0.5 
+          ? 2 * progress * progress 
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        
+        // Interpolate position
+        const currentPosition = new THREE.Vector3().lerpVectors(
+          originalPosition,
+          newPosition,
+          easedProgress
+        );
+        
+        // Update position
+        agent.position.copy(currentPosition);
+        agent.mesh.position.copy(currentPosition);
+        
+        // Continue animation if not complete
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      }
+      
+      animate();
+    }
+    
+    // Update connections after agent positions change
+    function updateConnections() {
+      connections.forEach(conn => {
+        // Get updated positions
+        const fromPos = agents[conn.from].position;
+        const toPos = agents[conn.to].position;
+        
+        // Update connection geometry
+        if (conn.object) {
+          scene.remove(conn.object);
+          
+          // Create new connection with updated positions
+          const points = [fromPos, toPos];
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          const material = new THREE.LineBasicMaterial({
+            color: 0x88aaff,
+            transparent: true,
+            opacity: 0.4 * displayParams.connectionWidth
+          });
+          
+          const line = new THREE.Line(geometry, material);
+          scene.add(line);
+          
+          // Update connection object
+          conn.object = line;
+        }
+      });
+    }
+    
+    // Update agent colors based on selected mode
+    function updateAgentColors() {
+      agents.forEach(agent => {
+        let color;
+        
+        if (displayParams.colorMode === 'utility') {
+          // Color based on utility
+          const normalizedUtility = Math.min(1, agent.utility / 2);
+          
+          if (normalizedUtility > 0.66) {
+            color = highUtilityColor;
+          } else if (normalizedUtility > 0.33) {
+            color = medUtilityColor;
+          } else {
+            color = lowUtilityColor;
+          }
+          
+          // Update emoji face
+          if (agent.emojiElement) {
+            agent.emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
+          }
+        } 
+        else if (displayParams.colorMode === 'income') {
+          // Color based on income
+          // Find max income for normalization
+          const maxIncome = Math.max(...agents.map(a => a.income));
+          const normalizedIncome = agent.income / maxIncome;
+          
+          // Interpolate between low and high income colors
+          color = lowIncomeColor.clone().lerp(highIncomeColor, normalizedIncome);
+          
+          // Update emoji to show income level
+          if (agent.emojiElement) {
+            agent.emojiElement.textContent = normalizedIncome > 0.66 ? '💰' : normalizedIncome > 0.33 ? '💼' : '👝';
+          }
+        } 
+        else if (displayParams.colorMode === 'transfers') {
+          // Color based on transfer activity
+          // Normalize by max transfer count
+          const maxTransfers = Math.max(1, ...agents.map(a => a.transferCount || 0));
+          const normalizedTransfers = (agent.transferCount || 0) / maxTransfers;
+          
+          // Interpolate between low and high transfer colors
+          color = lowTransferColor.clone().lerp(highTransferColor, normalizedTransfers);
+          
+          // Update emoji to show transfer activity
+          if (agent.emojiElement) {
+            agent.emojiElement.textContent = normalizedTransfers > 0.66 ? '🔄' : normalizedTransfers > 0.33 ? '↔️' : '⏹️';
+          }
+        }
+        
+        // Apply color
+        if (agent.mesh && agent.mesh.material) {
+          agent.mesh.material.color.copy(color);
+        }
+      });
     }
     
     // Update connection strengths when altruism parameter changes
@@ -267,50 +644,86 @@
       
       // Create agents
       for (let i = 0; i < params.numAgents; i++) {
-        // Position agents in a circle with some randomness
-        const angle = (i / params.numAgents) * Math.PI * 2;
-        const radius = 15 + (Math.random() - 0.5) * 5;
-        const x = Math.cos(angle) * radius;
-        const y = Math.sin(angle) * radius;
-        const z = (Math.random() - 0.5) * 5;
+        let position;
+        
+        if (displayParams.layout === 'circle') {
+          // Position agents in a circle with some randomness
+          const angle = (i / params.numAgents) * Math.PI * 2;
+          const radius = 15 + (Math.random() - 0.5) * 5;
+          position = new THREE.Vector3(
+            Math.cos(angle) * radius,
+            Math.sin(angle) * radius,
+            (Math.random() - 0.5) * 5
+          );
+        }
+        else if (displayParams.layout === 'grid') {
+          // Position agents in a grid
+          const gridSize = Math.ceil(Math.sqrt(params.numAgents));
+          const spacing = 30 / gridSize;
+          
+          const row = Math.floor(i / gridSize);
+          const col = i % gridSize;
+          
+          position = new THREE.Vector3(
+            (col - gridSize/2 + 0.5) * spacing,
+            (row - gridSize/2 + 0.5) * spacing,
+            (Math.random() - 0.5) * 3
+          );
+        }
+        else { // Random layout
+          position = new THREE.Vector3(
+            (Math.random() - 0.5) * 30,
+            (Math.random() - 0.5) * 30,
+            (Math.random() - 0.5) * 10
+          );
+        }
         
         // Create agent geometry
         const geometry = new THREE.SphereGeometry(1, 16, 16);
         
-        // Color based on income
-        const utility = calculateUtility(incomes[i]);
+        // Calculate initial utility and color
+        const consumption = incomes[i];
+        const utility = calculateUtility(consumption);
         const normalizedUtility = Math.min(1, utility / 2);
-        const color = new THREE.Color();
         
-        if (normalizedUtility > 0.6) {
-          color.copy(highUtilityColor);
-        } else if (normalizedUtility > 0.3) {
-          color.copy(medUtilityColor);
+        let color;
+        if (normalizedUtility > 0.66) {
+          color = highUtilityColor;
+        } else if (normalizedUtility > 0.33) {
+          color = medUtilityColor;
         } else {
-          color.copy(lowUtilityColor);
+          color = lowUtilityColor;
         }
         
         const material = new THREE.MeshPhongMaterial({ color: color });
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(x, y, z);
+        mesh.position.copy(position);
+        
+        // Apply base size scaling
+        const baseScale = displayParams.nodeSize;
+        const utilityScale = 0.8 + normalizedUtility * 0.4;
+        const finalScale = baseScale * utilityScale;
+        mesh.scale.set(finalScale, finalScale, finalScale);
+        
         scene.add(mesh);
         
-        // Create label to show income
-        const smileElement = document.createElement('div');
-        smileElement.className = 'smile-1';
-        smileElement.textContent = normalizedUtility > 0.6 ? ':)' : normalizedUtility > 0.3 ? ':|' : ':(';
-        smileElement.style.display = 'none'; // Hide initially, will be positioned in update
-        document.body.appendChild(smileElement);
+        // Create emoji element
+        const emojiElement = document.createElement('div');
+        emojiElement.className = 'emoji-face';
+        emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
+        emojiElement.style.display = displayParams.showEmojis ? 'block' : 'none';
+        document.body.appendChild(emojiElement);
         
         // Store agent data
         agents.push({
           mesh: mesh,
           income: incomes[i],
-          consumption: incomes[i],
+          consumption: consumption,
           utility: utility,
-          position: new THREE.Vector3(x, y, z),
-          smileElement: smileElement,
-          lastUpdated: 0
+          position: position,
+          emojiElement: emojiElement,
+          lastUpdated: 0,
+          transferCount: 0 // Track how many transfers this agent is involved in
         });
       }
       
@@ -380,10 +793,11 @@
       const material = new THREE.LineBasicMaterial({
         color: 0x88aaff,
         transparent: true,
-        opacity: 0.4
+        opacity: 0.4 * displayParams.connectionWidth
       });
       
       const line = new THREE.Line(geometry, material);
+      line.visible = displayParams.showConnections;
       scene.add(line);
       
       // Random factor for connection strength
@@ -400,6 +814,8 @@
     
     // Create a transfer visualization
     function createTransferVisualization(fromAgent, toAgent, amount) {
+      if (!displayParams.showTransfers) return null;
+      
       // Create a small sphere representing the transfer
       const geometry = new THREE.SphereGeometry(0.2, 8, 8);
       const material = new THREE.MeshBasicMaterial({ 
@@ -429,9 +845,20 @@
     
     // Update transfer particles
     function updateTransferParticles() {
+      // Skip if transfers are hidden
+      if (!displayParams.showTransfers) {
+        transferParticles.forEach(particle => {
+          if (particle.mesh) particle.mesh.visible = false;
+        });
+        return;
+      }
+      
       // Update existing particles
       for (let i = transferParticles.length - 1; i >= 0; i--) {
         const particle = transferParticles[i];
+        
+        // Show particles
+        if (particle.mesh) particle.mesh.visible = true;
         
         // Update progress
         particle.progress += particle.speed;
@@ -484,8 +911,8 @@
       // Remove agents
       agents.forEach(agent => {
         scene.remove(agent.mesh);
-        if (agent.smileElement) {
-          document.body.removeChild(agent.smileElement);
+        if (agent.emojiElement) {
+          document.body.removeChild(agent.emojiElement);
         }
       });
       
@@ -512,83 +939,94 @@
     
     // Add an income shock to the system
     function addIncomeShock() {
-      // Shock a random agent or the richest agent
-      let targetIdx;
-      const shockType = Math.random();
+      // Shock multiple agents for more dramatic effect
+      const shockCount = Math.max(1, Math.floor(agents.length * 0.1)); // Shock about 10% of agents
       
-      if (shockType < 0.5) {
-        // Random agent
-        targetIdx = Math.floor(Math.random() * agents.length);
-      } else {
-        // Find the richest agent
-        let maxIncome = -Infinity;
-        let richestIdx = 0;
+      for (let shockIndex = 0; shockIndex < shockCount; shockIndex++) {
+        // Choose target
+        let targetIdx;
+        const shockType = Math.random();
         
-        for (let i = 0; i < agents.length; i++) {
-          if (agents[i].income > maxIncome) {
-            maxIncome = agents[i].income;
-            richestIdx = i;
+        if (shockType < 0.5) {
+          // Random agent
+          targetIdx = Math.floor(Math.random() * agents.length);
+        } else {
+          // Find the richest agent
+          let maxIncome = -Infinity;
+          let richestIdx = 0;
+          
+          for (let i = 0; i < agents.length; i++) {
+            if (agents[i].income > maxIncome) {
+              maxIncome = agents[i].income;
+              richestIdx = i;
+            }
           }
+          
+          targetIdx = richestIdx;
         }
         
-        targetIdx = richestIdx;
+        // Apply shock - either positive or negative
+        const direction = Math.random() < 0.7 ? 1 : -1; // 70% chance of positive shock
+        const magnitude = agents[targetIdx].income * (0.3 + Math.random() * 0.5); // 30-80% change
+        
+        // Apply the shock
+        agents[targetIdx].income += direction * magnitude;
+        agents[targetIdx].income = Math.max(1, agents[targetIdx].income); // Ensure minimum income
+        
+        // Update consumption as well (immediate effect)
+        agents[targetIdx].consumption += direction * magnitude;
+        agents[targetIdx].consumption = Math.max(1, agents[targetIdx].consumption);
+        
+        // Update utility
+        agents[targetIdx].utility = calculateUtility(agents[targetIdx].consumption);
+        
+        // Update appearance
+        updateAgentAppearance(agents[targetIdx]);
+        
+        // Visual indication of the shock
+        const agent = agents[targetIdx];
+        
+        // Briefly make the agent larger
+        const originalScale = agent.mesh.scale.x;
+        agent.mesh.scale.set(originalScale * 2, originalScale * 2, originalScale * 2);
+        
+        // Animate back to normal size
+        setTimeout(() => {
+          agent.mesh.scale.set(originalScale, originalScale, originalScale);
+        }, 500);
+        
+        // Show a message
+        const shockMsg = document.createElement('div');
+        shockMsg.style.position = 'absolute';
+        shockMsg.style.color = direction > 0 ? 'lime' : 'red';
+        shockMsg.style.fontSize = '16px';
+        shockMsg.style.fontWeight = 'bold';
+        shockMsg.style.textShadow = '0 0 3px black';
+        shockMsg.textContent = direction > 0 ? '+' + magnitude.toFixed(1) : magnitude.toFixed(1);
+        
+        // Position near the agent
+        const screenPos = toScreenPosition(agent.mesh, camera, renderer);
+        shockMsg.style.left = screenPos.x + 'px';
+        shockMsg.style.top = (screenPos.y - 30) + 'px';
+        
+        document.body.appendChild(shockMsg);
+        
+        // Remove after animation
+        setTimeout(() => {
+          shockMsg.style.transition = 'opacity 1s';
+          shockMsg.style.opacity = '0';
+        }, 1000);
+        
+        setTimeout(() => {
+          document.body.removeChild(shockMsg);
+        }, 2000);
       }
-      
-      // Apply shock - either positive or negative
-      const direction = Math.random() < 0.7 ? 1 : -1; // 70% chance of positive shock
-      const magnitude = agents[targetIdx].income * (0.3 + Math.random() * 0.5); // 30-80% change
-      
-      // Apply the shock
-      agents[targetIdx].income += direction * magnitude;
-      agents[targetIdx].income = Math.max(1, agents[targetIdx].income); // Ensure minimum income
-      
-      // Update consumption as well (immediate effect)
-      agents[targetIdx].consumption += direction * magnitude;
-      agents[targetIdx].consumption = Math.max(1, agents[targetIdx].consumption);
-      
-      // Update utility
-      agents[targetIdx].utility = calculateUtility(agents[targetIdx].consumption);
-      
-      // Visual indication of the shock
-      const agent = agents[targetIdx];
-      
-      // Briefly make the agent larger
-      const originalScale = agent.mesh.scale.x;
-      agent.mesh.scale.set(originalScale * 2, originalScale * 2, originalScale * 2);
-      
-      // Animate back to normal size
-      setTimeout(() => {
-        agent.mesh.scale.set(originalScale, originalScale, originalScale);
-      }, 500);
-      
-      // Show a message
-      const shockMsg = document.createElement('div');
-      shockMsg.style.position = 'absolute';
-      shockMsg.style.color = direction > 0 ? 'lime' : 'red';
-      shockMsg.style.fontSize = '16px';
-      shockMsg.style.fontWeight = 'bold';
-      shockMsg.style.textShadow = '0 0 3px black';
-      shockMsg.textContent = direction > 0 ? '+' + magnitude.toFixed(1) : magnitude.toFixed(1);
-      
-      // Position near the agent
-      const screenPos = toScreenPosition(agent.mesh, camera, renderer);
-      shockMsg.style.left = screenPos.x + 'px';
-      shockMsg.style.top = (screenPos.y - 30) + 'px';
-      
-      document.body.appendChild(shockMsg);
-      
-      // Remove after animation
-      setTimeout(() => {
-        shockMsg.style.transition = 'opacity 1s';
-        shockMsg.style.opacity = '0';
-      }, 1000);
-      
-      setTimeout(() => {
-        document.body.removeChild(shockMsg);
-      }, 2000);
       
       // Update stats
       updateStats();
+      
+      // Update colors if needed
+      updateAgentColors();
     }
     
     // Calculate Gini coefficient (inequality measure)
@@ -771,8 +1209,6 @@
             giver.consumption > receiver.consumption) {
             
           // Calculate optimal transfer amount
-          // This is an approximation - in a more complex simulation we would solve
-          // the equation that equalizes the marginal utilities
           const transferAmount = (giver.consumption - receiver.consumption) * 0.1 * conn.strength;
           
           // Apply transfer if significant
@@ -784,6 +1220,10 @@
             // Update utilities
             giver.utility = calculateUtility(giver.consumption);
             receiver.utility = calculateUtility(receiver.consumption);
+            
+            // Track transfer activity
+            giver.transferCount = (giver.transferCount || 0) + 1;
+            receiver.transferCount = (receiver.transferCount || 0) + 1;
             
             // Update colors
             updateAgentAppearance(giver);
@@ -806,53 +1246,67 @@
       if (params.iterationCount % 10 === 0) {
         updateStats();
       }
+      
+      // Update colors in transfers mode every 30 iterations
+      if (displayParams.colorMode === 'transfers' && params.iterationCount % 30 === 0) {
+        updateAgentColors();
+      }
     }
     
     // Update agent appearance based on utility
     function updateAgentAppearance(agent) {
+      // Apply base scale
+      const baseScale = displayParams.nodeSize;
+      
+      // Additional utility-based scaling
       const utility = agent.utility;
       const normalizedUtility = Math.min(1, utility / 2);
+      const utilityScale = 0.8 + normalizedUtility * 0.4;
       
-      // Update color
-      let color;
-      if (normalizedUtility > 0.6) {
-        color = highUtilityColor;
-      } else if (normalizedUtility > 0.3) {
-        color = medUtilityColor;
-      } else {
-        color = lowUtilityColor;
-      }
+      // Set final scale
+      const finalScale = baseScale * utilityScale;
+      agent.mesh.scale.set(finalScale, finalScale, finalScale);
       
-      agent.mesh.material.color.copy(color);
-      
-      // Update size based on utility
-      const scale = 0.8 + normalizedUtility * 0.4;
-      agent.mesh.scale.set(scale, scale, scale);
-      
-      // Update smile
-      if (agent.smileElement) {
-        agent.smileElement.textContent = normalizedUtility > 0.6 ? ':)' : normalizedUtility > 0.3 ? ':|' : ':(';
+      // Update color and emoji based on display mode
+      if (displayParams.colorMode === 'utility') {
+        // Color based on utility level
+        let color;
+        if (normalizedUtility > 0.66) {
+          color = highUtilityColor;
+        } else if (normalizedUtility > 0.33) {
+          color = medUtilityColor;
+        } else {
+          color = lowUtilityColor;
+        }
+        
+        agent.mesh.material.color.copy(color);
+        
+        // Update emoji
+        if (agent.emojiElement) {
+          agent.emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
+        }
       }
     }
     
-    // Update smile positions
-    function updateSmilePositions() {
+    // Update emoji positions
+    function updateEmojiPositions() {
       for (const agent of agents) {
-        if (agent.smileElement) {
+        if (agent.emojiElement) {
           const screenPos = toScreenPosition(agent.mesh, camera, renderer);
-          agent.smileElement.style.left = (screenPos.x - 12) + 'px';
-          agent.smileElement.style.top = (screenPos.y - 12) + 'px';
+          agent.emojiElement.style.left = (screenPos.x - 12) + 'px';
+          agent.emojiElement.style.top = (screenPos.y - 12) + 'px';
           
-          // Show/hide based on camera distance
+          // Show/hide based on camera distance and settings
           const distance = camera.position.distanceTo(agent.mesh.position);
-          agent.smileElement.style.display = distance < 50 ? 'block' : 'none';
+          agent.emojiElement.style.display = 
+            (displayParams.showEmojis && distance < 80) ? 'block' : 'none';
           
           // Highlight recently updated agents
           const timeSinceUpdate = params.iterationCount - agent.lastUpdated;
           if (timeSinceUpdate < 3) {
-            agent.smileElement.style.textShadow = '0 0 5px white';
+            agent.emojiElement.style.textShadow = '0 0 5px white';
           } else {
-            agent.smileElement.style.textShadow = '0 0 3px black';
+            agent.emojiElement.style.textShadow = '0 0 3px black';
           }
         }
       }
@@ -869,7 +1323,7 @@
       updateTransferParticles();
       
       // Update emoji positions
-      updateSmilePositions();
+      updateEmojiPositions();
       
       // Render scene
       renderer.render(scene, camera);
