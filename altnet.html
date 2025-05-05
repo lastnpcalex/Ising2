@@ -1,1156 +1,317 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta charset="UTF-8" />
-    <title>Altruism Networks: Utility Maximization</title>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Altruism Network Simulation</title>
+  <style>
+    body { margin: 0; overflow: hidden; background-color: #000; font-family: Arial, sans-serif; }
+    #info { position: absolute; color: white; padding: 10px; bottom: 10px; left: 10px; }
+    #debug { position: absolute; color: white; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="info">Altruism Network Simulation - Drag to rotate, scroll to zoom</div>
+  <div id="debug">Loading simulation...</div>
 
-      <!-- THREE.js Core + OrbitControls -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
-    <script src="js/OrbitControls.js"></script>
+  <!-- Import libraries from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
 
-    <!-- Postprocessing: EffectComposer, RenderPass, Bloom, Glitch -->
-    <script src="js/EffectComposer.js"></script>
-    <script src="js/RenderPass.js"></script>
-    <script src="js/UnrealBloomPass.js"></script>
-    <script src="js/GlitchPass.js"></script>
-    <script src="js/CopyShader.js"></script>
-    <script src="js/ShaderPass.js"></script>
-    <script src="js/LuminosityHighPassShader.js"></script>
-    <script src="js/DigitalGlitch.js"></script>
-
-    <!-- dat.GUI -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
-
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-      body {
-        margin: 0;
-        overflow: hidden;
-        background-color: #000;
-        font-family: 'VT323', monospace;
+  <script>
+    // Debug helper
+    function log(msg) {
+      console.log(msg);
+      document.getElementById('debug').innerHTML += '<br>' + msg;
+    }
+    
+    log('Initializing...');
+    
+    // Global variables
+    let scene, camera, renderer, controls;
+    let agents = [];
+    let connections = [];
+    
+    // Parameters
+    const params = {
+      numAgents: 20,
+      altruismStrength: 1.0,
+      incomeInequality: 1.0,
+      runSimulation: true,
+      showConnections: true,
+      
+      reinitialize: function() {
+        clearScene();
+        initializeAgents();
       }
-
-      #info {
-        position: absolute;
-        bottom: 10px;
-        left: 10px;
-        color: white;
-        z-index: 100;
-        font-size: 18px;
-      }
-
-      #utilityContainer {
-        width: 100%;
-        background: rgba(0, 0, 0, 0.3);
-        color: #fff;
-        font-size: 14px;
-        padding: -2px;
-      }
-      #utilityLabel {
-        margin-bottom: 4px;
-        margin-top: 20px;
-        font-weight: bold;
-        font-size: 16px;
-      }
-      #utilityGraph {
-        display: block;
-        width: 100%;
-        height: 100px;
-        background: rgba(0, 0, 0, 0.3);
-      }
-
-      #phaseModal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(20, 20, 20, 0.7);
-        backdrop-filter: blur(5px);
-        z-index: 300;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      #phaseModalContent {
-        background: linear-gradient(135deg, rgba(255,105,180,0.8), rgba(138,43,226,0.8));
-        border: 2px solid rgba(255, 255, 255, 0.8);
-        border-radius: 15px;
-        box-shadow: 0 0 15px rgba(255,105,180,0.8);
-        padding: 20px 30px;
-        text-align: center;
-        color: #fff;
-      }
-      #phaseModalButton {
-        background: rgba(255,255,255,0.3);
-        border: none;
-        border-radius: 5px;
-        color: #fff;
-        padding: 10px 20px;
-        font-size: 16px;
-        margin-top: 15px;
-        cursor: pointer;
-        transition: background 0.3s ease;
-      }
-      #phaseModalButton:hover {
-        background: rgba(255,255,255,0.5);
-      }
-
-      #bubbleLayer {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        z-index: 400;
-      }
-      .speech-bubble {
-        position: absolute;
-        transform: translate(-50%, -50%);
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        border-radius: 10px;
-        color: #fff;
-        padding: 5px 10px;
-        font-size: 14px;
-        backdrop-filter: blur(3px);
-        box-shadow: 0 0 5px rgba(255,255,255,0.5);
-        animation: bubbleFade 2s forwards;
-      }
-      @keyframes bubbleFade {
-        0% { opacity: 1; }
-        80% { opacity: 1; }
-        100% { opacity: 0; }
-      }
-
-      #uiToggleContainer {
-        position: absolute;
-        bottom: 10px;
-        left: 300px;
-        width: 100px;
-        height: 100px;
-        z-index: 1000;
-      }
-      #uiToggleButton {
-        position: absolute;
-        left: -285px;
-        bottom: 15px;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-        background: rgba(0, 0, 0, 0.5);
-        color: #fff;
-        border: none;
-        border-radius: 5px;
-        padding: 5px 10px;
-        cursor: pointer;
-      }
-      #uiToggleContainer:hover #uiToggleButton {
-        opacity: 1;
-      }
-    </style>
-
-    <!-- Vertex Shader for final composite -->
-    <script id="vertexshader" type="x-shader/x-vertex">
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-      }
-    </script>
-
-    <!-- Fragment Shader for final composite -->
-    <script id="fragmentshader" type="x-shader/x-fragment">
-      uniform sampler2D baseTexture;
-      uniform sampler2D bloomTexture;
-      varying vec2 vUv;
-      void main() {
-        vec4 base = texture2D( baseTexture, vUv );
-        vec4 bloom = texture2D( bloomTexture, vUv );
-        gl_FragColor = base + bloom;
-      }
-    </script>
-  </head>
-  <body>
-    <!-- Info at the bottom-left -->
-    <div id="info">Altruism Network Simulation — drag to rotate, scroll to zoom</div>
-
-    <!-- Utility Graph Container -->
-    <div id="utilityContainer" style="display:none;">
-      <div id="utilityLabel">Average Utility</div>
-      <canvas id="utilityGraph" width="300" height="100"></canvas>
-    </div>
-
-    <!-- Modal dialog -->
-    <div id="phaseModal">
-      <div id="phaseModalContent">
-        <p id="phaseModalText"></p>
-        <button id="phaseModalButton">OK</button>
-      </div>
-    </div>
-
-    <div id="bubbleLayer"></div>
-
-    <!-- UI Toggle Button -->
-    <div id="uiToggleContainer">
-      <button id="uiToggleButton">Hide UI</button>
-    </div>
-
-    <script>
-      // Helper functions
-      function setTooltip(controller, tooltipText) {
-        requestAnimationFrame(() => {
-          if (controller.__li) {
-            controller.__li.title = tooltipText;
-          }
-        });
-      }
-
-      // Global variables
-      let scene, camera, renderer, controls;
-      let composer, bloomComposer, finalComposer;
-      const darkMaterial = new THREE.MeshBasicMaterial({ color: "black" });
-      const materials = {}; 
-      const BLOOM_LAYER = 1;
-
-      let agents = [];
-      let connections = [];
-      let transferFlows = [];
-
-      // Simulation parameters
-      let simulationSpeed = 5;
-      let lastSimUpdate = 0;
-      const simUpdateInterval = 100;
-
-      // Background
-      let bgCanvas, bgCtx, bgTexture;
-
-      // Utility tracking
-      const maxHistoryLength = 200;
-      let utilityHistory = [];
-      let averageUtility = 0;
-
-      // Graph
-      let graphCanvas, graphCtx;
-
-      let currentPhase = null;
-      let textureMap = {};
-
-      // UI state
-      let uiHidden = false;
-
-      // Layout modes
-      const LayoutMode = {
-        RANDOM: "Random",
-        SPHERE: "Sphere",
-        SMALL_WORLD: "Small World"
-      };
-
-      // Agent messages (based on utility satisfaction)
-      const agentMessages = {
-        "high": "My utility is maximized!",
-        "medium": "I'm doing okay.",
-        "low": "I need more resources..."
-      };
-
-      // Parameters for simulation
-      const params = {
-        coupling: 1.0,                // Strength of altruistic connections
-        incomeInequality: 1.0,        // Gini-like parameter for income distribution
-        externalField: 0.0,           // External influence on all agents
-        numAgents: 50,                // Number of agents in simulation
-        altruismDensity: 0.1,         // Probability of altruistic connection between agents
-        neighborsCount: 4,            // Target number of altruistic connections per agent
-        networkSpread: 2.5,           // Physical spacing of the network
-        layout: LayoutMode.RANDOM,    // Layout algorithm
-        showTransfers: true,          // Show transfer ribbons
-        showConnectors: true,         // Show altruistic connections
-        transferThreshold: 0.1,       // Minimum transfer amount to visualize
-        utilityFunction: "CARA",      // Utility function type
-        utilityParam: 1.0,            // Parameter for utility function
-        showBubbles: true,            // Show speech bubbles
-        
-        // Wave parameters for ribbons
-        baseWaveAmp: 0.2,
-        waveAmpFactor: 0.02,
-        baseWaveFreq: 1.0,
-        waveFreqFactor: 0.1,
-        
-        runSimulation: true,          // Whether simulation is running
-        
-        // Reset the simulation
-        reinitialize: function() {
-          clearScene();
-          createAgentsAndConnections();
+    };
+    
+    // Setup scene
+    function init() {
+      log('Setting up scene');
+      
+      // Create scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111133);
+      
+      // Setup camera
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 0, 40);
+      
+      // Setup renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      
+      // Add orbit controls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      
+      // Add lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+      
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(0, 1, 1);
+      scene.add(directionalLight);
+      
+      // Setup GUI
+      setupGUI();
+      
+      // Initialize agents
+      initializeAgents();
+      
+      // Handle window resize
+      window.addEventListener('resize', onWindowResize);
+      
+      log('Scene setup complete');
+    }
+    
+    // Create GUI controls
+    function setupGUI() {
+      const gui = new dat.GUI();
+      
+      gui.add(params, 'numAgents', 5, 50, 1).name('Number of Agents');
+      gui.add(params, 'altruismStrength', 0.1, 2.0, 0.1).name('Altruism Strength');
+      gui.add(params, 'incomeInequality', 0.1, 3.0, 0.1).name('Income Inequality');
+      gui.add(params, 'showConnections').name('Show Connections');
+      gui.add(params, 'runSimulation').name('Run Simulation');
+      gui.add(params, 'reinitialize').name('Reinitialize');
+    }
+    
+    // Handle window resize
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    
+    // Generate agent incomes with controlled inequality
+    function generateIncomes(count, inequalityFactor) {
+      const incomes = [];
+      
+      if (inequalityFactor <= 1) {
+        // Close to uniform distribution
+        for (let i = 0; i < count; i++) {
+          incomes.push(2 + Math.random() * 8); // range [2-10]
         }
-      };
-
-      // Min/max for UI controls
-      const MIN_AGENTS = 10;
-      const MAX_AGENTS = 200;
-
-      // Colors
-      const highUtilityColor = new THREE.Color(0xff77ff);   // Happy - high utility
-      const medUtilityColor = new THREE.Color(0xffff77);    // Neutral - medium utility
-      const lowUtilityColor = new THREE.Color(0x77ffff);    // Sad - low utility
-
-      // Background colors
-      const nightTop = new THREE.Color("#0a0c37");
-      const nightBottom = new THREE.Color("#375971");
-      const dayTop = new THREE.Color("#ff61c6");
-      const dayBottom = new THREE.Color("#ff9900");
-
-      // Initialize smile/neutral/frown textures
-      function initTextures() {
-        textureMap["high"] = createTextTexture(":)", 60, "#000000");
-        textureMap["medium"] = createTextTexture(":|", 60, "#000000");
-        textureMap["low"] = createTextTexture(":(", 60, "#000000");
-      }
-
-      function createTextTexture(text, fontSize, textColor) {
-        const canvas = document.createElement("canvas");
-        canvas.width = 256;
-        canvas.height = 256;
-        const ctx = canvas.getContext("2d");
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.font = fontSize + "px VT323, monospace";
-        ctx.fillStyle = textColor;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(text, canvas.width/2, canvas.height/2);
-        const tex = new THREE.CanvasTexture(canvas);
-        tex.magFilter = THREE.LinearFilter;
-        tex.minFilter = THREE.LinearFilter;
-        tex.needsUpdate = true;
-        return tex;
-      }
-
-      // Initialize the scene
-      function init() {
-        initTextures();
-        scene = new THREE.Scene();
-
-        camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 10000);
-        camera.position.set(0, 0, 50);
-
-        renderer = new THREE.WebGLRenderer({antialias: true});
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        controls = new THREE.OrbitControls(camera, renderer.domElement);
-
-        // Background canvas
-        bgCanvas = document.createElement("canvas");
-        bgCanvas.width = 128;
-        bgCanvas.height = 128;
-        bgCtx = bgCanvas.getContext("2d");
-        bgTexture = new THREE.CanvasTexture(bgCanvas);
-        scene.background = bgTexture;
-
-        // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(0, 1, 1);
-        scene.add(directionalLight);
-
-        createAgentsAndConnections();
-
-        graphCanvas = document.getElementById("utilityGraph");
-        graphCtx = graphCanvas.getContext("2d");
-
-        createGUI();
-        window.addEventListener("resize", onWindowResize, false);
-
-        // Modal
-        document.getElementById("phaseModalButton").addEventListener("click", () => {
-          document.getElementById("phaseModal").style.display = "none";
-        });
-        window.addEventListener("keydown", (event) => {
-          if(event.key === "Enter") {
-            document.getElementById("phaseModal").style.display = "none";
-          }
-        });
-
-        setupPostProcessing();
-        animate();
-      }
-
-      function onWindowResize() {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        bloomComposer.setSize(window.innerWidth, window.innerHeight);
-        finalComposer.setSize(window.innerWidth, window.innerHeight);
-      }
-
-      // Setup bloom effect
-      function setupPostProcessing() {
-        const renderScene = new THREE.RenderPass(scene, camera);
-
-        // Bloom
-        bloomComposer = new THREE.EffectComposer(renderer);
-        bloomComposer.setSize(window.innerWidth, window.innerHeight);
-        bloomComposer.renderToScreen = false;
-        bloomComposer.addPass(renderScene);
-        const bloomPass = new THREE.UnrealBloomPass(
-          new THREE.Vector2(window.innerWidth, window.innerHeight),
-          5, // intensity
-          1, // radius
-          0.25 // threshold
-        );
-        bloomComposer.addPass(bloomPass);
-
-        // Final pass
-        finalComposer = new THREE.EffectComposer(renderer);
-        finalComposer.setSize(window.innerWidth, window.innerHeight);
-        finalComposer.addPass(renderScene);
-        const finalPass = new THREE.ShaderPass(
-          new THREE.ShaderMaterial({
-            uniforms: {
-              baseTexture: { value: null },
-              bloomTexture: { value: bloomComposer.renderTarget2.texture }
-            },
-            vertexShader: document.getElementById('vertexshader').textContent,
-            fragmentShader: document.getElementById('fragmentshader').textContent
-          }),
-          "baseTexture"
-        );
-        finalPass.needsSwap = true;
-        finalComposer.addPass(finalPass);
-      }
-
-      // Create GUI controls
-      function createGUI() {
-        const gui = new dat.GUI();
+      } else {
+        // Power law distribution
+        const exponent = 1 + inequalityFactor * 0.5;
         
-        const c1 = gui.add(params, "coupling", 0.1, 5, 0.1).name("Altruism (α)");
-        setTooltip(c1, "Strength of altruistic connections between agents");
-
-        const c2 = gui.add(params, "incomeInequality", 0.1, 5, 0.1).name("Income Inequality");
-        setTooltip(c2, "Level of inequality in initial income distribution");
-
-        const c3 = gui.add(params, "externalField", -5, 5, 0.1).name("Global Aid");
-        setTooltip(c3, "External resources provided to all agents");
-
-        const c4 = gui.add(params, "numAgents", MIN_AGENTS, MAX_AGENTS, 1).name("Agent Count");
-        setTooltip(c4, "Number of agents in the simulation");
-
-        const c5 = gui.add(params, "altruismDensity", 0.01, 0.5, 0.01).name("Altruism Density");
-        setTooltip(c5, "Probability of altruistic connection between agents");
-
-        const c6 = gui.add(params, "neighborsCount", 1, 10, 1).name("Neighbors");
-        setTooltip(c6, "Target number of altruistic connections per agent");
-
-        const layoutControl = gui.add(params, "layout", [
-          LayoutMode.RANDOM, 
-          LayoutMode.SPHERE, 
-          LayoutMode.SMALL_WORLD
-        ]).name("Layout");
-        setTooltip(layoutControl, "Algorithm for arranging agents spatially");
-
-        // Utility container
-        const utilityContainer = document.getElementById("utilityContainer");
-        utilityContainer.style.display = "block";
-        gui.domElement.appendChild(utilityContainer);
-
-        // Visualization options
-        const showTransfersControl = gui.add(params, "showTransfers").name("Show Transfers");
-        setTooltip(showTransfersControl, "Show resource transfers between agents");
-
-        const showConnectorsControl = gui.add(params, "showConnectors").name("Show Connections");
-        setTooltip(showConnectorsControl, "Show altruistic connections between agents");
-
-        const transferThresholdControl = gui.add(params, "transferThreshold", 0.01, 1, 0.01).name("Transfer Threshold");
-        setTooltip(transferThresholdControl, "Minimum transfer amount to visualize");
-
-        const showBubblesControl = gui.add(params, "showBubbles").name("Show Bubbles");
-        setTooltip(showBubblesControl, "Show speech bubbles with agent thoughts");
-
-        const simulationToggle = gui.add(params, "runSimulation").name("Run Simulation");
-        setTooltip(simulationToggle, "Pause/resume the simulation");
-
-        // Reinitialize button
-        const reinitializeControl = gui.add(params, "reinitialize").name("Reinitialize");
-        setTooltip(reinitializeControl, "Reset simulation with current parameters");
-
-        // Hook the dat.GUI close button
-        let closeButton = gui.domElement.getElementsByClassName("close-button");
-        if (closeButton.length > 0) {
-          let originalOnClick = closeButton[0].onclick;
-          closeButton[0].onclick = function(evt) {
-            if (originalOnClick) originalOnClick.call(this, evt);
-            utilityContainer.style.display = gui.closed ? "none" : "block";
-          };
-        }
-      }
-
-      // Create agents and their connections
-      function createAgentsAndConnections() {
-        agents = [];
-        connections = [];
-        transferFlows = [];
-        utilityHistory = [];
-
-        // Clear existing objects
-        scene.traverse(obj => {
-          if(obj.isMesh || obj.isLine || obj.isSprite) {
-            scene.remove(obj);
-          }
-        });
-
-        // Generate incomes based on inequality parameter
-        // Higher inequality means more skewed distribution
-        const incomes = generateIncomes(params.numAgents, params.incomeInequality);
-
-        // Create agents
-        for(let i = 0; i < params.numAgents; i++) {
-          const basePos = new THREE.Vector3();
-          
-          if(params.layout === LayoutMode.RANDOM) {
-            basePos.set(
-              (Math.random() - 0.5) * 30,
-              (Math.random() - 0.5) * 30,
-              (Math.random() - 0.5) * 30
-            );
-          } else if(params.layout === LayoutMode.SPHERE) {
-            const phi = 2 * Math.PI * Math.random();
-            const cosTheta = (Math.random() * 2) - 1;
-            const sinTheta = Math.sqrt(1 - cosTheta * cosTheta);
-            const radius = 15;
-            basePos.set(
-              radius * sinTheta * Math.cos(phi),
-              radius * sinTheta * Math.sin(phi),
-              radius * cosTheta
-            );
-          } else if(params.layout === LayoutMode.SMALL_WORLD) {
-            // Place agents in a ring with some connections across
-            const angle = 2 * Math.PI * (i / params.numAgents);
-            const radius = 15;
-            basePos.set(
-              radius * Math.cos(angle),
-              radius * Math.sin(angle),
-              (Math.random() - 0.5) * 5 // small z-variation
-            );
-          }
-          
-          // Initial utility estimation (will be refined later)
-          const initialUtility = calculateUtility({
-            income: incomes[i],
-            consumption: incomes[i]
-          });
-          
-          const mesh = createAgentMesh(initialUtility, basePos);
-          scene.add(mesh);
-          
-          agents.push({
-            mesh,
-            income: incomes[i],
-            consumption: incomes[i], // initially consumption = income
-            basePos: basePos.clone(),
-            pos: basePos.clone(),
-            utility: initialUtility,
-            utilityLevel: getUtilityLevel(initialUtility)
-          });
-        }
-
-        // Create altruistic connections
-        createAltruisticConnections();
-        
-        // Run initial simulation to establish transfers
-        runTransferCalculation();
-        
-        // Create transfer visualizations
-        createTransferFlows();
-      }
-
-      // Generate agent incomes with controlled inequality
-      function generateIncomes(count, inequalityFactor) {
-        const incomes = [];
-        
-        // Parametric approach - higher inequality creates more skewed distribution
-        if (inequalityFactor <= 1) {
-          // Close to uniform distribution when inequality is low
-          for (let i = 0; i < count; i++) {
-            incomes.push(2 + Math.random() * 8); // range [2-10]
-          }
-        } else {
-          // Power law distribution when inequality is high
-          const exponent = 1 + inequalityFactor * 0.5; // higher exponent = more inequality
-          
-          for (let i = 0; i < count; i++) {
-            // Use power law: x^(-exponent)
-            const r = Math.random();
-            // Transform to range approximately [1-20] with bias toward lower values
-            const x = Math.pow(r, -1/exponent);
-            incomes.push(1 + x * 19);
-          }
-        }
-        
-        return incomes;
-      }
-
-      // Calculate agent's utility based on consumption
-      function calculateUtility(agent) {
-        const consumption = agent.consumption;
-        
-        // CARA utility function: -e^(-α*c)/α
-        // Higher consumption = higher utility
-        const alpha = 0.5; // risk aversion parameter
-        return (1 - Math.exp(-alpha * consumption)) / alpha;
-      }
-
-      // Get utility level category for visualization
-      function getUtilityLevel(utility) {
-        // Assuming utility range is typically [0-2.5] based on CARA with α=0.5 and consumption [0-20]
-        if (utility > 1.5) return "high";
-        else if (utility > 0.5) return "medium";
-        else return "low";
-      }
-
-      // Create an agent mesh with facial expression based on utility
-      function createAgentMesh(utility, basePos) {
-        const geometry = new THREE.SphereGeometry(0.4, 16, 16);
-        
-        // Determine color based on utility level
-        const utilityLevel = getUtilityLevel(utility);
-        let baseColor;
-        
-        if (utilityLevel === "high") baseColor = highUtilityColor;
-        else if (utilityLevel === "medium") baseColor = medUtilityColor;
-        else baseColor = lowUtilityColor;
-        
-        const material = new THREE.MeshPhongMaterial({
-          color: baseColor,
-          emissive: 0x111111
-        });
-        
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.copy(basePos);
-
-        // Add facial expression sprite
-        const tex = textureMap[utilityLevel];
-        const spriteMaterial = new THREE.SpriteMaterial({
-          map: tex,
-          transparent: true,
-          depthTest: true,
-          depthWrite: false
-        });
-        
-        const sprite = new THREE.Sprite(spriteMaterial);
-        sprite.scale.set(2, 2, 1);
-        sprite.position.set(0, 0, 0.01);
-        mesh.add(sprite);
-
-        return mesh;
-      }
-
-      // Create altruistic connections between agents
-      function createAltruisticConnections() {
-        // Try to create approximately params.neighborsCount connections per agent
-        // with probability based on altruismDensity and inverse distance
-        
-        for (let i = 0; i < agents.length; i++) {
-          // For each agent, calculate connection probability with other agents
-          let connectionCandidates = [];
-          
-          for (let j = 0; j < agents.length; j++) {
-            if (i === j) continue;
-            
-            const distance = agents[i].pos.distanceTo(agents[j].pos);
-            // Probability decreases with distance and increases with altruismDensity
-            const probability = params.altruismDensity * (1 / (1 + distance * 0.05));
-            
-            connectionCandidates.push({
-              index: j,
-              probability,
-              distance
-            });
-          }
-          
-          // Sort by probability (highest first)
-          connectionCandidates.sort((a, b) => b.probability - a.probability);
-          
-          // Take the top candidates based on neighborsCount and probability
-          const maxConnections = Math.min(params.neighborsCount, connectionCandidates.length);
-          let connectionsCreated = 0;
-          
-          for (let k = 0; k < connectionCandidates.length && connectionsCreated < maxConnections; k++) {
-            const candidate = connectionCandidates[k];
-            
-            // Use probability to determine if connection is made
-            if (Math.random() < candidate.probability) {
-              createAltruisticConnection(i, candidate.index);
-              connectionsCreated++;
-            }
-          }
-          
-          // Ensure minimum connections
-          while (connectionsCreated < Math.min(2, maxConnections)) {
-            if (connectionCandidates.length === 0) break;
-            
-            // Take the closest agent not yet connected
-            const idx = connectionCandidates[0].index;
-            createAltruisticConnection(i, idx);
-            connectionCandidates.shift();
-            connectionsCreated++;
-          }
-        }
-      }
-
-      // Create altruistic connection between two agents
-      function createAltruisticConnection(i, j) {
-        // Create a simple line representing the altruistic connection
-        const points = [agents[i].pos, agents[j].pos];
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({
-          color: 0x8d6fd6,
-          transparent: true,
-          opacity: 0.3
-        });
-        
-        const line = new THREE.Line(geometry, material);
-        scene.add(line);
-        
-        // Store the connection with strength based on coupling parameter
-        connections.push({
-          from: i,
-          to: j,
-          strength: params.coupling * (0.8 + Math.random() * 0.4), // small random variation
-          object: line
-        });
-      }
-
-      // Calculate equilibrium transfers between agents
-      function runTransferCalculation() {
-        // Reset consumptions to incomes initially
-        agents.forEach(agent => {
-          agent.consumption = agent.income;
-        });
-        
-        // Run multiple iterations to converge to equilibrium
-        const iterations = 10;
-        
-        for (let iter = 0; iter < iterations; iter++) {
-          // For each agent, decide on transfers based on altruistic connections
-          for (let i = 0; i < agents.length; i++) {
-            const agent = agents[i];
-            
-            // Get all outgoing connections
-            const outConnections = connections.filter(conn => conn.from === i);
-            
-            // Calculate potential transfers
-            let totalTransfer = 0;
-            const transfers = [];
-            
-            for (const conn of outConnections) {
-              const receiver = agents[conn.to];
-              
-              // Check utility condition for transfer (marginal utility comparison)
-              // Transfer happens when giver's marginal utility * connection strength < receiver's marginal utility
-              const giverMarginalUtility = getMarginalUtility(agent.consumption);
-              const receiverMarginalUtility = getMarginalUtility(receiver.consumption);
-              
-              if (giverMarginalUtility * conn.strength < receiverMarginalUtility && agent.consumption > receiver.consumption) {
-                // Calculate optimal transfer amount
-                // This is simplified - in a real implementation we'd solve for the amount that equalizes
-                // the discounted marginal utilities
-                const optimalAmount = (agent.consumption - receiver.consumption) * 0.1 * conn.strength;
-                
-                if (optimalAmount > params.transferThreshold && optimalAmount < agent.consumption * 0.5) {
-                  transfers.push({
-                    to: conn.to,
-                    amount: optimalAmount
-                  });
-                  totalTransfer += optimalAmount;
-                }
-              }
-            }
-            
-            // Apply transfers if total doesn't exceed available resources
-            if (totalTransfer <= agent.consumption * 0.9) {
-              for (const transfer of transfers) {
-                // Reduce giver's consumption
-                agent.consumption -= transfer.amount;
-                
-                // Increase receiver's consumption
-                agents[transfer.to].consumption += transfer.amount;
-              }
-            }
-          }
-        }
-        
-        // Update utility values based on final consumption
-        agents.forEach(agent => {
-          agent.utility = calculateUtility(agent);
-          agent.utilityLevel = getUtilityLevel(agent.utility);
-          updateAgentAppearance(agent);
-        });
-      }
-
-      // Get marginal utility for CARA utility function
-      function getMarginalUtility(consumption) {
-        const alpha = 0.5;
-        return Math.exp(-alpha * consumption);
-      }
-
-      // Create visualizations for transfers between agents
-      function createTransferFlows() {
-        // Clear existing transfer flows
-        transferFlows.forEach(flow => scene.remove(flow.object));
-        transferFlows = [];
-        
-        // For each pair of agents, check if there's a significant transfer
-        for (let i = 0; i < agents.length; i++) {
-          // Find connections from this agent
-          const outConnections = connections.filter(conn => conn.from === i);
-          
-          for (const conn of outConnections) {
-            const giver = agents[i];
-            const receiver = agents[conn.to];
-            
-            // Check if transfer would happen based on current state
-            const giverMarginalUtility = getMarginalUtility(giver.consumption);
-            const receiverMarginalUtility = getMarginalUtility(receiver.consumption);
-            
-            if (giverMarginalUtility * conn.strength < receiverMarginalUtility && giver.consumption > receiver.consumption) {
-              // Estimate transfer amount
-              const transferAmount = (giver.consumption - receiver.consumption) * 0.1 * conn.strength;
-              
-              if (transferAmount > params.transferThreshold) {
-                // Create a ribbon/line to represent the transfer
-                const transferObject = createTransferRibbon(giver.pos, receiver.pos, transferAmount);
-                scene.add(transferObject);
-                
-                transferFlows.push({
-                  from: i,
-                  to: conn.to,
-                  amount: transferAmount,
-                  object: transferObject
-                });
-              }
-            }
-          }
-        }
-      }
-
-      // Create ribbon mesh to visualize transfers
-      function createTransferRibbon(posA, posB, amount) {
-        const segments = 15;
-        // Scale width based on transfer amount
-        const width = 0.05 + amount * 0.03;
-
-        const dir = new THREE.Vector3().subVectors(posB, posA);
-        const length = dir.length();
-        dir.normalize();
-
-        // Compute wave amplitude/frequency based on length and transfer amount
-        const waveAmp = params.baseWaveAmp + length * params.waveAmpFactor;
-        const waveFreq = params.baseWaveFreq + length * params.waveFreqFactor;
-
-        const up = new THREE.Vector3(0, 1, 0);
-        if (Math.abs(dir.dot(up)) > 0.99) up.set(1, 0, 0);
-        const right = new THREE.Vector3().crossVectors(dir, up).normalize();
-        const localUp = new THREE.Vector3().crossVectors(right, dir).normalize();
-
-        const geometry = new THREE.BufferGeometry();
-        const positions = new Float32Array((segments + 1) * 2 * 3);
-        const colors = new Float32Array((segments + 1) * 2 * 3);
-        const indices = [];
-
-        // Color indicates amount - ranging from blue to pink for larger transfers
-        const colorStart = new THREE.Color(0x77ffff);
-        const colorEnd = new THREE.Color(0xff77ff);
-        const colorMix = Math.min(1, amount / 2);
-        const ribbonColor = colorStart.clone().lerp(colorEnd, colorMix);
-
-        for (let i = 0; i <= segments; i++) {
-          const t = i / segments;
-          const vertColor = ribbonColor;
-
-          let center = new THREE.Vector3().copy(posA)
-            .addScaledVector(dir, length * t);
-
-          // Use an envelope so that wave=0 at t=0 and t=1
-          const envelope = Math.sin(t * Math.PI);
-          const wave = Math.sin(t * Math.PI * waveFreq) * envelope * waveAmp;
-          center.addScaledVector(localUp, wave);
-
-          let offsetL = new THREE.Vector3().copy(right).multiplyScalar(-width);
-          let offsetR = new THREE.Vector3().copy(right).multiplyScalar(width);
-
-          let idxL = i * 2;
-          let idxR = i * 2 + 1;
-
-          let vL = new THREE.Vector3().addVectors(center, offsetL);
-          positions[idxL * 3 + 0] = vL.x;
-          positions[idxL * 3 + 1] = vL.y;
-          positions[idxL * 3 + 2] = vL.z;
-          colors[idxL * 3 + 0] = vertColor.r;
-          colors[idxL * 3 + 1] = vertColor.g;
-          colors[idxL * 3 + 2] = vertColor.b;
-
-          let vR = new THREE.Vector3().addVectors(center, offsetR);
-          positions[idxR * 3 + 0] = vR.x;
-          positions[idxR * 3 + 1] = vR.y;
-          positions[idxR * 3 + 2] = vR.z;
-          colors[idxR * 3 + 0] = vertColor.r;
-          colors[idxR * 3 + 1] = vertColor.g;
-          colors[idxR * 3 + 2] = vertColor.b;
-        }
-
-        for (let i = 0; i < segments; i++) {
-          const i0 = i * 2;
-          const i1 = i * 2 + 1;
-          const i2 = (i + 1) * 2;
-          const i3 = (i + 1) * 2 + 1;
-          indices.push(i0, i1, i2);
-          indices.push(i1, i3, i2);
-        }
-
-        geometry.setIndex(indices);
-        geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-        geometry.computeVertexNormals();
-
-        const material = new THREE.MeshLambertMaterial({
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.7,
-          emissive: 0x111111,
-          vertexColors: true
-        });
-        
-        return new THREE.Mesh(geometry, material);
-      }
-
-      // Update agent appearance based on utility
-      function updateAgentAppearance(agent) {
-        // Update color based on utility level
-        if (agent.utilityLevel === "high") {
-          agent.mesh.material.color.copy(highUtilityColor);
-        } else if (agent.utilityLevel === "medium") {
-          agent.mesh.material.color.copy(medUtilityColor);
-        } else {
-          agent.mesh.material.color.copy(lowUtilityColor);
-        }
-        
-        // Update facial expression
-        if (agent.mesh.children[0]) {
-          agent.mesh.children[0].material.map = textureMap[agent.utilityLevel];
-          agent.mesh.children[0].material.needsUpdate = true;
-        }
-        
-        // Maybe show speech bubble
-        maybeShowSpeechBubble(agent);
-      }
-
-      // Maybe show a speech bubble for an agent
-      function maybeShowSpeechBubble(agent) {
-        if (!params.showBubbles) return;
-        if (uiHidden) return;
-        
-        const modal = document.getElementById("phaseModal");
-        if (modal.style.display !== "none") return;
-        
-        if (Math.random() < 0.005) {
-          showSpeechBubble(agent, agentMessages[agent.utilityLevel]);
-        }
-      }
-
-      // Show a speech bubble
-      function showSpeechBubble(agent, text) {
-        const bubbleLayer = document.getElementById("bubbleLayer");
-        const bubble = document.createElement("div");
-        bubble.className = "speech-bubble";
-        bubble.innerText = text;
-        bubbleLayer.appendChild(bubble);
-        
-        const screenPos = toScreenPosition(agent.mesh, camera);
-        bubble.style.left = screenPos.x + "px";
-        bubble.style.top = screenPos.y + "px";
-        
-        setTimeout(() => {
-          if (bubbleLayer.contains(bubble)) {
-            bubbleLayer.removeChild(bubble);
-          }
-        }, 2000);
-      }
-
-      // Convert 3D position to screen position
-      function toScreenPosition(obj, cam) {
-        let v = new THREE.Vector3();
-        obj.getWorldPosition(v);
-        v.project(cam);
-        let x = (v.x + 1) / 2 * window.innerWidth;
-        let y = (-v.y + 1) / 2 * window.innerHeight;
-        return {x, y};
-      }
-
-      // Update the average utility graph
-      function updateUtilityGraph() {
-        let totalUtility = 0;
-        for (let i = 0; i < agents.length; i++) {
-          totalUtility += agents[i].utility;
-        }
-        
-        let avgUtility = totalUtility / agents.length;
-        utilityHistory.push(avgUtility);
-        
-        if (utilityHistory.length > maxHistoryLength) {
-          utilityHistory.shift();
-        }
-        
-        drawUtilityGraph();
-        updateBackgroundGradient(avgUtility);
-      }
-
-      // Draw the utility graph
-      function drawUtilityGraph() {
-        let w = graphCanvas.width, h = graphCanvas.height;
-        graphCtx.clearRect(0, 0, w, h);
-        graphCtx.strokeStyle = "#fff";
-        graphCtx.lineWidth = 1;
-        
-        // Axes
-        graphCtx.beginPath();
-        graphCtx.moveTo(30, 10);
-        graphCtx.lineTo(30, 90);
-        graphCtx.lineTo(280, 90);
-        graphCtx.stroke();
-        
-        graphCtx.fillStyle = "#fff";
-        graphCtx.font = "10px sans-serif";
-        graphCtx.fillText("2", 5, 15);
-        graphCtx.fillText("1", 5, 50);
-        graphCtx.fillText("0", 5, 90);
-        
-        // Data
-        graphCtx.beginPath();
-        graphCtx.strokeStyle = "#ff77ff";
-        let len = utilityHistory.length;
-        for (let i = 0; i < len; i++) {
-          let x = 30 + (i / (maxHistoryLength - 1)) * (280 - 30);
-          let utility = utilityHistory[i];
-          // Scale to fit the graph (assuming utility range is 0-2)
-          let y = 90 - (utility * 40);
-          if (i === 0) graphCtx.moveTo(x, y);
-          else graphCtx.lineTo(x, y);
-        }
-        graphCtx.stroke();
-      }
-
-      // Update background gradient based on average utility
-      function updateBackgroundGradient(avgUtility) {
-        // Scale to [0,1]
-        const t = Math.min(1, Math.max(0, avgUtility / 2));
-        const topColor = nightTop.clone().lerp(dayTop, t);
-        const bottomColor = nightBottom.clone().lerp(dayBottom, t);
-        
-        bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-        let grad = bgCtx.createLinearGradient(0, 0, 0, bgCanvas.height);
-        grad.addColorStop(0, "#" + topColor.getHexString());
-        grad.addColorStop(1, "#" + bottomColor.getHexString());
-        bgCtx.fillStyle = grad;
-        bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
-        bgTexture.needsUpdate = true;
-      }
-
-      // Clear the scene
-      function clearScene() {
-        agents.forEach(n => scene.remove(n.mesh));
-        connections.forEach(e => scene.remove(e.object));
-        transferFlows.forEach(f => scene.remove(f.object));
-        
-        agents = [];
-        connections = [];
-        transferFlows = [];
-        utilityHistory = [];
-      }
-
-      // Update sprite orientations to face camera
-      function updateSpriteOffsets() {
-        const camPos = camera.position;
-        const tempVec = new THREE.Vector3();
-        
-        agents.forEach(agent => {
-          const sprite = agent.mesh.children[0];
-          if (!sprite) return;
-          
-          agent.mesh.getWorldPosition(tempVec);
-          const offsetDir = new THREE.Vector3().subVectors(camPos, tempVec).normalize();
-          sprite.position.copy(offsetDir.multiplyScalar(0.6));
-        });
-      }
-
-      // Darken non-bloom objects for postprocessing
-      function darkenNonBloomed(obj) {
-        if (obj.isMesh && obj.layers.test(BLOOM_LAYER) === false) {
-          materials[obj.uuid] = obj.material;
-          obj.material = darkMaterial;
+        for (let i = 0; i < count; i++) {
+          const r = Math.random();
+          const x = Math.pow(r, -1/exponent);
+          incomes.push(1 + x * 19);
         }
       }
       
-      function restoreMaterial(obj) {
-        if (materials[obj.uuid]) {
-          obj.material = materials[obj.uuid];
-          delete materials[obj.uuid];
-        }
+      return incomes;
+    }
+    
+    // Create agents and connections
+    function initializeAgents() {
+      log('Creating agents...');
+      
+      // Generate incomes
+      const incomes = generateIncomes(params.numAgents, params.incomeInequality);
+      
+      // Create agents
+      for (let i = 0; i < params.numAgents; i++) {
+        // Position agents in a circle
+        const angle = (i / params.numAgents) * Math.PI * 2;
+        const radius = 15;
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
+        const z = (Math.random() - 0.5) * 5;
+        
+        // Create agent geometry
+        const geometry = new THREE.SphereGeometry(1, 16, 16);
+        
+        // Color based on income
+        const normalizedIncome = (incomes[i] - 1) / 19; // normalize to [0,1]
+        const color = new THREE.Color();
+        color.setHSL(0.7 - normalizedIncome * 0.5, 0.8, 0.5 + normalizedIncome * 0.5);
+        
+        const material = new THREE.MeshPhongMaterial({ color: color });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(x, y, z);
+        scene.add(mesh);
+        
+        // Create text to show income
+        const textCanvas = document.createElement('canvas');
+        textCanvas.width = 128;
+        textCanvas.height = 128;
+        const ctx = textCanvas.getContext('2d');
+        ctx.fillStyle = 'white';
+        ctx.font = '50px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(incomes[i].toFixed(1), 64, 64);
+        
+        const textTexture = new THREE.CanvasTexture(textCanvas);
+        const spriteMaterial = new THREE.SpriteMaterial({ map: textTexture });
+        const sprite = new THREE.Sprite(spriteMaterial);
+        sprite.scale.set(2, 1, 1);
+        sprite.position.set(0, 1.5, 0);
+        mesh.add(sprite);
+        
+        // Store agent data
+        agents.push({
+          mesh: mesh,
+          income: incomes[i],
+          consumption: incomes[i],
+          utility: Math.log(incomes[i]), // simple log utility
+          position: new THREE.Vector3(x, y, z)
+        });
       }
-
-      // Animation loop
-      function animate() {
-        requestAnimationFrame(animate);
-        
-        const currentTime = performance.now();
-        
-        // Run simulation step
-        if (params.runSimulation && currentTime - lastSimUpdate > simUpdateInterval) {
-          if (Math.random() < 0.1) { // Occasionally update transfers
-            runTransferCalculation();
-            createTransferFlows();
+      
+      log('Creating connections...');
+      
+      // Create altruistic connections between agents
+      for (let i = 0; i < agents.length; i++) {
+        // Connect to neighbors with some probability
+        for (let j = 0; j < agents.length; j++) {
+          if (i !== j) {
+            const distance = agents[i].position.distanceTo(agents[j].position);
+            // Higher probability for closer agents
+            const probability = 0.5 * (1 / (1 + distance * 0.05));
+            
+            if (Math.random() < probability) {
+              createConnection(i, j);
+            }
           }
-          
-          lastSimUpdate = currentTime;
         }
-        
-        updateUtilityGraph();
-        updateSpriteOffsets();
-        
-        // Toggle visibility of connections and transfers
-        connections.forEach(conn => conn.object.visible = params.showConnectors);
-        transferFlows.forEach(flow => flow.object.visible = params.showTransfers);
-        
-        // Bloom effect
-        scene.traverse(darkenNonBloomed);
-        bloomComposer.render();
-        scene.traverse(restoreMaterial);
-        
-        finalComposer.render();
-        controls.update();
       }
-
-      // Start everything!
-      init();
-
-      // UI Toggle
-      document.getElementById("uiToggleButton").addEventListener("click", function() {
-        uiHidden = !uiHidden;
-        let displayValue = uiHidden ? "none" : "";
-        
-        ["info", "phaseModal"].forEach(id => {
-          const el = document.getElementById(id);
-          if (el) el.style.display = displayValue;
-        });
-        
-        document.querySelectorAll(".dg").forEach(el => {
-          el.style.display = displayValue;
-        });
-        
-        this.textContent = uiHidden ? "Show UI" : "Hide UI";
+      
+      log('Initialization complete: ' + agents.length + ' agents, ' + connections.length + ' connections');
+    }
+    
+    // Create a connection between two agents
+    function createConnection(i, j) {
+      const points = [
+        agents[i].position,
+        agents[j].position
+      ];
+      
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({
+        color: 0x88aaff,
+        transparent: true,
+        opacity: 0.6
       });
-    </script>
-  </body>
+      
+      const line = new THREE.Line(geometry, material);
+      scene.add(line);
+      
+      connections.push({
+        from: i,
+        to: j,
+        strength: params.altruismStrength * (0.8 + Math.random() * 0.4),
+        object: line
+      });
+    }
+    
+    // Clear scene
+    function clearScene() {
+      log('Clearing scene');
+      
+      // Remove all agents and connections
+      agents.forEach(agent => {
+        scene.remove(agent.mesh);
+      });
+      
+      connections.forEach(connection => {
+        scene.remove(connection.object);
+      });
+      
+      agents = [];
+      connections = [];
+    }
+    
+    // Simulate transfers
+    function simulateTransfers() {
+      if (!params.runSimulation) return;
+      
+      // Reset consumptions to incomes
+      agents.forEach(agent => {
+        agent.consumption = agent.income;
+      });
+      
+      // Calculate transfers
+      for (let iter = 0; iter < 5; iter++) {
+        connections.forEach(connection => {
+          const giver = agents[connection.from];
+          const receiver = agents[connection.to];
+          
+          // Simple transfer logic: richer gives to poorer based on connection strength
+          if (giver.consumption > receiver.consumption) {
+            const transferAmount = (giver.consumption - receiver.consumption) * 0.05 * connection.strength;
+            
+            if (transferAmount > 0.1 && transferAmount < giver.consumption * 0.5) {
+              giver.consumption -= transferAmount;
+              receiver.consumption += transferAmount;
+            }
+          }
+        });
+      }
+      
+      // Update agent appearances based on consumption
+      agents.forEach(agent => {
+        // Update utility
+        agent.utility = Math.log(agent.consumption);
+        
+        // Update color based on consumption
+        const normalizedConsumption = (agent.consumption - 1) / 19;
+        const color = new THREE.Color();
+        color.setHSL(0.7 - normalizedConsumption * 0.5, 0.8, 0.5 + normalizedConsumption * 0.5);
+        agent.mesh.material.color = color;
+        
+        // Update size based on consumption/income ratio
+        const scale = 0.8 + (agent.consumption / agent.income) * 0.4;
+        agent.mesh.scale.set(scale, scale, scale);
+      });
+    }
+    
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      // Simulate transfers
+      simulateTransfers();
+      
+      // Toggle connection visibility
+      connections.forEach(conn => {
+        conn.object.visible = params.showConnections;
+      });
+      
+      // Render
+      renderer.render(scene, camera);
+      controls.update();
+    }
+    
+    // Start everything
+    init();
+    animate();
+  </script>
+</body>
 </html>
