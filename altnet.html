@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gradual Altruism Network Simulation</title>
+  <title>Altruism Network Simulation</title>
   <style>
     body { 
       margin: 0; 
@@ -104,7 +104,7 @@
   </style>
 </head>
 <body>
-  <div id="info">Gradual Altruism Network Simulation — drag to rotate, scroll to zoom</div>
+  <div id="info">Altruism Network Simulation — drag to rotate, scroll to zoom</div>
   
   <div id="simulationStats">
     <h3>Simulation Statistics</h3>
@@ -130,12 +130,16 @@
       <div id="altruismValue" class="value-display">Strength: 1.0</div>
       
       <label for="incomeInequalitySlider">Income Inequality:</label>
-      <input type="range" id="incomeInequalitySlider" min="0.1" max="5" step="0.1" value="3">
-      <div id="inequalityValue" class="value-display">Inequality: 3.0</div>
+      <input type="range" id="incomeInequalitySlider" min="0.1" max="10" step="0.1" value="5">
+      <div id="inequalityValue" class="value-display">Inequality: 5.0</div>
       
       <label for="transferFrictionSlider">Transfer Friction:</label>
-      <input type="range" id="transferFrictionSlider" min="0.0" max="0.99" step="0.01" value="0.9">
-      <div id="frictionValue" class="value-display">Friction: 0.9</div>
+      <input type="range" id="transferFrictionSlider" min="0.5" max="0.995" step="0.005" value="0.95">
+      <div id="frictionValue" class="value-display">Friction: 0.95</div>
+      
+      <label for="riskAversionSlider">Risk Aversion (α):</label>
+      <input type="range" id="riskAversionSlider" min="0.1" max="2" step="0.1" value="1.0">
+      <div id="riskAversionValue" class="value-display">α: 1.0</div>
       
       <label for="agentCountSlider">Number of Agents:</label>
       <input type="range" id="agentCountSlider" min="10" max="50" step="1" value="30">
@@ -166,6 +170,10 @@
         <label for="showConnectionsToggle">Show Connections:</label>
         <input type="checkbox" id="showConnectionsToggle" checked>
       </div>
+      
+      <label for="utilityThresholdSlider">Utility Display Threshold:</label>
+      <input type="range" id="utilityThresholdSlider" min="0.2" max="2" step="0.1" value="1.0">
+      <div id="thresholdValue" class="value-display">Threshold: 1.0</div>
     </div>
     
     <h3>Visualization Mode</h3>
@@ -208,16 +216,18 @@
       showTransfers: true,
       showConnections: true,
       colorMode: 'utility', // 'utility', 'income', 'transfers'
-      layout: 'circle' // 'circle', 'grid', 'random'
+      layout: 'circle', // 'circle', 'grid', 'random'
+      utilityThreshold: 1.0 // Scale factor for utility display thresholds
     };
     
     // Simulation parameters
     let params = {
       numAgents: 30,
       altruismStrength: 1.0,
-      incomeInequality: 3.0, // Higher inequality
-      transferFriction: 0.9, // High friction slows down transfers
-      simulationSpeed: 3,    // Lower initial speed
+      incomeInequality: 5.0, // Higher inequality
+      transferFriction: 0.95, // Very high friction slows down transfers dramatically
+      riskAversion: 1.0, // Risk aversion parameter for utility function
+      simulationSpeed: 3,
       iterationCount: 0,
       transferCount: 0,
       isPaused: false
@@ -319,6 +329,20 @@
         document.getElementById('frictionValue').textContent = `Friction: ${params.transferFriction.toFixed(2)}`;
       });
       
+      // Risk aversion slider
+      document.getElementById('riskAversionSlider').addEventListener('input', (e) => {
+        params.riskAversion = parseFloat(e.target.value);
+        document.getElementById('riskAversionValue').textContent = `α: ${params.riskAversion.toFixed(1)}`;
+        // Update all utilities since the function changed
+        if (agents.length > 0) {
+          agents.forEach(agent => {
+            agent.utility = calculateUtility(agent.consumption);
+          });
+          updateAgentColors();
+          updateStats();
+        }
+      });
+      
       // Agent count slider
       document.getElementById('agentCountSlider').addEventListener('input', (e) => {
         params.numAgents = parseInt(e.target.value);
@@ -337,6 +361,13 @@
         displayParams.connectionWidth = parseFloat(e.target.value);
         document.getElementById('connectionWidthValue').textContent = `Width: ${displayParams.connectionWidth.toFixed(1)}`;
         updateConnectionWidths();
+      });
+      
+      // Utility threshold slider
+      document.getElementById('utilityThresholdSlider').addEventListener('input', (e) => {
+        displayParams.utilityThreshold = parseFloat(e.target.value);
+        document.getElementById('thresholdValue').textContent = `Threshold: ${displayParams.utilityThreshold.toFixed(1)}`;
+        updateAgentColors();
       });
       
       // Show emojis toggle
@@ -423,11 +454,7 @@
       connections.forEach(conn => {
         // Each connection's line has a material we can update
         if (conn.object && conn.object.material) {
-          // Base width scaled by display parameter
-          let scaledWidth = displayParams.connectionWidth * 2; // Multiplier to make it visible
-          conn.object.material.linewidth = scaledWidth; // Note: this has limited browser support
-          
-          // We can also update the opacity to make it more visible
+          // We can only update the opacity to make it more visible
           conn.object.material.opacity = 0.4 * displayParams.connectionWidth;
         }
       });
@@ -566,8 +593,9 @@
         let color;
         
         if (displayParams.colorMode === 'utility') {
-          // Color based on utility
-          const normalizedUtility = Math.min(1, agent.utility / 2);
+          // Color based on utility relative to the utility threshold
+          const maxUtility = 2 * displayParams.utilityThreshold;
+          const normalizedUtility = Math.min(1, agent.utility / maxUtility);
           
           if (normalizedUtility > 0.66) {
             color = highUtilityColor;
@@ -636,29 +664,30 @@
           incomes.push(2 + Math.random() * 8); // range [2-10]
         }
       } else {
-        // Power law distribution
-        const exponent = 1 + inequalityFactor * 0.5;
+        // Power law distribution with higher exponent for more extreme inequality
+        const exponent = 1 + inequalityFactor * 0.4;
         
         for (let i = 0; i < count; i++) {
           const r = Math.random();
-          const x = Math.pow(r, -1/exponent);
-          incomes.push(1 + x * 19);
+          // More extreme distribution - map to [0.1, 35] for more visible differences
+          const base = Math.pow(r, -1/exponent);
+          incomes.push(0.1 + base * 35);
         }
       }
       
       return incomes;
     }
     
-    // Calculate utility given a consumption level
+    // Calculate utility given a consumption level using CARA utility
     function calculateUtility(consumption) {
       // CARA utility function: (1 - e^(-α*c))/α
-      const alpha = 0.5;
+      const alpha = params.riskAversion;
       return (1 - Math.exp(-alpha * consumption)) / alpha;
     }
     
     // Calculate marginal utility
     function calculateMarginalUtility(consumption) {
-      const alpha = 0.5;
+      const alpha = params.riskAversion;
       return Math.exp(-alpha * consumption);
     }
     
@@ -667,7 +696,7 @@
       // Clear existing objects
       clearScene();
       
-      // Generate incomes
+      // Generate incomes with greater inequality
       const incomes = generateIncomes(params.numAgents, params.incomeInequality);
       
       // Create agents
@@ -712,7 +741,10 @@
         // Calculate initial utility and color
         const consumption = incomes[i];
         const utility = calculateUtility(consumption);
-        const normalizedUtility = Math.min(1, utility / 2);
+        
+        // Normalize utility for display - using the threshold
+        const maxUtility = 2 * displayParams.utilityThreshold; 
+        const normalizedUtility = Math.min(1, utility / maxUtility);
         
         let color;
         if (normalizedUtility > 0.66) {
@@ -999,11 +1031,11 @@
         
         // Apply the shock
         agents[targetIdx].income += direction * magnitude;
-        agents[targetIdx].income = Math.max(1, agents[targetIdx].income); // Ensure minimum income
+        agents[targetIdx].income = Math.max(0.1, agents[targetIdx].income); // Ensure minimum income
         
         // Update consumption as well (immediate effect)
         agents[targetIdx].consumption += direction * magnitude;
-        agents[targetIdx].consumption = Math.max(1, agents[targetIdx].consumption);
+        agents[targetIdx].consumption = Math.max(0.1, agents[targetIdx].consumption);
         
         // Update utility
         agents[targetIdx].utility = calculateUtility(agents[targetIdx].consumption);
@@ -1245,7 +1277,7 @@
           const transferAmount = maxTransferAmount * frictionFactor;
           
           // Apply transfer if significant
-          if (transferAmount > 0.005 && transferAmount < giver.consumption * 0.5) {
+          if (transferAmount > 0.001 && transferAmount < giver.consumption * 0.5) {
             // Update consumptions
             giver.consumption -= transferAmount;
             receiver.consumption += transferAmount;
@@ -1293,7 +1325,9 @@
       
       // Additional utility-based scaling
       const utility = agent.utility;
-      const normalizedUtility = Math.min(1, utility / 2);
+      // Use utility threshold for normalization
+      const maxUtility = 2 * displayParams.utilityThreshold;
+      const normalizedUtility = Math.min(1, utility / maxUtility);
       const utilityScale = 0.8 + normalizedUtility * 0.4;
       
       // Set final scale
