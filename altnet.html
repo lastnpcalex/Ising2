@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Altruism Network Simulation</title>
+  <title>Debug Altruism Network</title>
   <style>
     body { 
       margin: 0; 
@@ -19,7 +19,7 @@
       color: white; 
       z-index: 100; 
       font-size: 16px;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.7);
       padding: 10px;
       border-radius: 5px;
     }
@@ -31,7 +31,7 @@
       padding: 10px;
       border-radius: 5px;
       font-size: 14px;
-      max-width: 300px;
+      width: 350px;
     }
     #simulationControls {
       position: absolute;
@@ -44,6 +44,7 @@
       z-index: 1000;
       max-height: 90vh;
       overflow-y: auto;
+      width: 300px;
     }
     #simulationControls h3 {
       margin-top: 10px;
@@ -77,53 +78,78 @@
       background: rgba(0,0,0,0.7);
       padding: 10px;
       border-radius: 5px;
+      width: 300px;
     }
     canvas {
       display: block;
     }
-    .emoji-face {
+    .debug-label {
       position: absolute;
-      font-size: 24px;
+      font-size: 10px;
       color: white;
       text-shadow: 0 0 3px black;
       opacity: 0.9;
+      pointer-events: none;
+      background: rgba(0,0,0,0.5);
+      padding: 2px 4px;
+      border-radius: 2px;
     }
-    label {
-      display: block;
-      margin-top: 5px;
-      margin-bottom: 3px;
-    }
-    input[type="range"] {
-      width: 100%;
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-size: 12px;
     }
     .value-display {
       font-size: 12px;
       color: #cccccc;
       margin-top: 2px;
     }
+    #debugValues {
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 100px;
+      overflow-y: auto;
+      margin-top: 10px;
+      background: rgba(0,0,0,0.3);
+      padding: 5px;
+    }
+    .agent-debug-panel {
+      position: absolute;
+      background: rgba(0,0,0,0.8);
+      border: 1px solid #555;
+      border-radius: 5px;
+      padding: 10px;
+      font-size: 12px;
+      display: none;
+      max-width: 250px;
+      z-index: 200;
+    }
   </style>
 </head>
 <body>
-  <div id="info">Altruism Network Simulation — drag to rotate, scroll to zoom</div>
+  <div id="info">Debug Altruism Network — drag to rotate, scroll to zoom</div>
   
   <div id="simulationStats">
     <h3>Simulation Statistics</h3>
     <div id="iterationCount">Iteration: 0</div>
     <div id="avgUtility">Average Utility: 0</div>
+    <div id="minMaxUtility">Utility Range: [0, 0]</div>
     <div id="transferCount">Transfers: 0</div>
     <div id="inequalityMeasure">Consumption Gini: 0</div>
+    <div id="debugValues"></div>
   </div>
   
   <div id="simulationControls">
     <h3>Simulation Controls</h3>
     <div class="control-group">
       <button id="pauseBtn">Pause</button>
+      <button id="stepBtn">Step Once</button>
       <button id="resetBtn">Reset</button>
       <button id="shockBtn">Add Income Shock</button>
       
       <label for="simSpeedSlider">Simulation Speed:</label>
-      <input type="range" id="simSpeedSlider" min="1" max="20" value="3">
-      <div id="simSpeedValue" class="value-display">Speed: 3</div>
+      <input type="range" id="simSpeedSlider" min="1" max="20" value="1">
+      <div id="simSpeedValue" class="value-display">Speed: 1</div>
       
       <label for="altruismStrength">Altruism Strength:</label>
       <input type="range" id="altruismStrength" min="0.1" max="2" step="0.1" value="1">
@@ -134,16 +160,12 @@
       <div id="inequalityValue" class="value-display">Inequality: 5.0</div>
       
       <label for="transferFrictionSlider">Transfer Friction:</label>
-      <input type="range" id="transferFrictionSlider" min="0.5" max="0.995" step="0.005" value="0.95">
-      <div id="frictionValue" class="value-display">Friction: 0.95</div>
-      
-      <label for="riskAversionSlider">Risk Aversion (α):</label>
-      <input type="range" id="riskAversionSlider" min="0.1" max="2" step="0.1" value="1.0">
-      <div id="riskAversionValue" class="value-display">α: 1.0</div>
+      <input type="range" id="transferFrictionSlider" min="0.9" max="0.999" step="0.001" value="0.99">
+      <div id="frictionValue" class="value-display">Friction: 0.99</div>
       
       <label for="agentCountSlider">Number of Agents:</label>
-      <input type="range" id="agentCountSlider" min="10" max="50" step="1" value="30">
-      <div id="agentCountValue" class="value-display">Agents: 30</div>
+      <input type="range" id="agentCountSlider" min="10" max="50" step="1" value="15">
+      <div id="agentCountValue" class="value-display">Agents: 15</div>
     </div>
     
     <h3>Display Options</h3>
@@ -152,13 +174,9 @@
       <input type="range" id="nodeSizeSlider" min="0.5" max="3" step="0.1" value="1">
       <div id="nodeSizeValue" class="value-display">Size: 1.0</div>
       
-      <label for="connectionWidthSlider">Connection Width:</label>
-      <input type="range" id="connectionWidthSlider" min="0.5" max="3" step="0.1" value="1">
-      <div id="connectionWidthValue" class="value-display">Width: 1.0</div>
-      
       <div>
-        <label for="showEmojisToggle">Show Faces:</label>
-        <input type="checkbox" id="showEmojisToggle" checked>
+        <label for="showLabelsToggle">Show Labels:</label>
+        <input type="checkbox" id="showLabelsToggle" checked>
       </div>
       
       <div>
@@ -170,10 +188,6 @@
         <label for="showConnectionsToggle">Show Connections:</label>
         <input type="checkbox" id="showConnectionsToggle" checked>
       </div>
-      
-      <label for="utilityThresholdSlider">Utility Display Threshold:</label>
-      <input type="range" id="utilityThresholdSlider" min="0.2" max="2" step="0.1" value="1.0">
-      <div id="thresholdValue" class="value-display">Threshold: 1.0</div>
     </div>
     
     <h3>Visualization Mode</h3>
@@ -195,42 +209,50 @@
     <canvas id="graphCanvas" width="300" height="150"></canvas>
   </div>
   
+  <!-- Agent detail panel (appears when clicking an agent) -->
+  <div id="agentDetailPanel" class="agent-debug-panel">
+    <h4 id="agentTitle">Agent Details</h4>
+    <div id="agentStats"></div>
+    <div id="agentHistory"></div>
+    <canvas id="agentHistoryGraph" width="230" height="100"></canvas>
+  </div>
+  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   
   <script>
     // Global variables
-    let scene, camera, renderer, controls;
+    let scene, camera, renderer, controls, raycaster, mouse;
     let agents = [];
     let connections = [];
     let activeTransfers = [];
     let utilityHistory = [];
     let inequalityHistory = [];
     let transferParticles = [];
+    let debugLabels = [];
+    let selectedAgent = null;
     
     // Display parameters
     let displayParams = {
       nodeSize: 1.0,
-      connectionWidth: 1.0,
-      showEmojis: true,
+      showLabels: true,
       showTransfers: true,
       showConnections: true,
       colorMode: 'utility', // 'utility', 'income', 'transfers'
-      layout: 'circle', // 'circle', 'grid', 'random'
-      utilityThreshold: 1.0 // Scale factor for utility display thresholds
+      layout: 'circle' // 'circle', 'grid', 'random'
     };
     
     // Simulation parameters
     let params = {
-      numAgents: 30,
+      numAgents: 15,
       altruismStrength: 1.0,
       incomeInequality: 5.0, // Higher inequality
-      transferFriction: 0.95, // Very high friction slows down transfers dramatically
-      riskAversion: 1.0, // Risk aversion parameter for utility function
-      simulationSpeed: 3,
+      transferFriction: 0.99, // Very high friction
+      simulationSpeed: 1,
       iterationCount: 0,
       transferCount: 0,
-      isPaused: false
+      isPaused: true, // Start paused so we can see initial state
+      stepMode: false
     };
     
     // Colors for different utility levels
@@ -264,6 +286,10 @@
       // Add controls
       controls = new THREE.OrbitControls(camera, renderer.domElement);
       
+      // Setup raycaster for object interaction
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+      
       // Add lights
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
       scene.add(ambientLight);
@@ -278,12 +304,139 @@
       // Create agents and connections
       createAgentsAndConnections();
       
+      // Add click event for agent selection
+      renderer.domElement.addEventListener('click', onDocumentClick, false);
+      
       // Handle window resize
       window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        updateLabelPositions();
       });
+    }
+    
+    // Handle mouse click
+    function onDocumentClick(event) {
+      // Calculate mouse position in normalized device coordinates
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      
+      // Update the picking ray with the camera and mouse position
+      raycaster.setFromCamera(mouse, camera);
+      
+      // Calculate objects intersecting the picking ray
+      const meshes = agents.map(agent => agent.mesh);
+      const intersects = raycaster.intersectObjects(meshes);
+      
+      if (intersects.length > 0) {
+        const clickedMesh = intersects[0].object;
+        const clickedAgent = agents.find(agent => agent.mesh === clickedMesh);
+        
+        if (clickedAgent) {
+          selectAgent(clickedAgent);
+        }
+      } else {
+        // Click on empty space - hide agent panel
+        hideAgentPanel();
+      }
+    }
+    
+    // Select an agent to show details
+    function selectAgent(agent) {
+      selectedAgent = agent;
+      
+      // Update agent detail panel
+      const panel = document.getElementById('agentDetailPanel');
+      const title = document.getElementById('agentTitle');
+      const stats = document.getElementById('agentStats');
+      
+      // Set agent information
+      title.textContent = `Agent #${agents.indexOf(agent)}`;
+      
+      // Display agent stats
+      stats.innerHTML = `
+        <div>Income: ${agent.income.toFixed(2)}</div>
+        <div>Consumption: ${agent.consumption.toFixed(2)}</div>
+        <div>Utility: ${agent.utility.toFixed(4)}</div>
+        <div>Transfers: ${agent.transferCount || 0}</div>
+      `;
+      
+      // Update agent history graph
+      updateAgentHistoryGraph(agent);
+      
+      // Position and show panel
+      const screenPos = toScreenPosition(agent.mesh, camera, renderer);
+      panel.style.left = (screenPos.x + 20) + 'px';
+      panel.style.top = (screenPos.y - 100) + 'px';
+      panel.style.display = 'block';
+    }
+    
+    // Hide agent panel
+    function hideAgentPanel() {
+      document.getElementById('agentDetailPanel').style.display = 'none';
+      selectedAgent = null;
+    }
+    
+    // Update agent history graph
+    function updateAgentHistoryGraph(agent) {
+      if (!agent.utilityHistory) {
+        return; // No history data
+      }
+      
+      const canvas = document.getElementById('agentHistoryGraph');
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+      
+      // Draw background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Draw grid
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      
+      // Horizontal grid lines
+      for (let i = 0; i <= 4; i++) {
+        const y = i * (height / 4);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+      
+      // No data to draw
+      if (agent.utilityHistory.length < 2) return;
+      
+      // Find max utility for scaling
+      const maxUtil = Math.max(...agent.utilityHistory) * 1.1;
+      
+      // Draw utility history
+      ctx.strokeStyle = 'rgba(255, 119, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      const history = agent.utilityHistory;
+      for (let i = 0; i < history.length; i++) {
+        const x = (i / (history.length - 1)) * width;
+        const y = height - (history[i] / maxUtil) * height;
+        
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+      
+      // Add label
+      ctx.font = '10px Arial';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('Utility History', 10, 12);
     }
     
     // Setup UI controls
@@ -294,8 +447,16 @@
         document.getElementById('pauseBtn').textContent = params.isPaused ? 'Resume' : 'Pause';
       });
       
+      // Step button
+      document.getElementById('stepBtn').addEventListener('click', () => {
+        // Run one simulation step
+        params.stepMode = true;
+        simulateOneStep();
+      });
+      
       // Reset button
       document.getElementById('resetBtn').addEventListener('click', () => {
+        hideAgentPanel(); // Hide agent panel when resetting
         resetSimulation();
       });
       
@@ -326,21 +487,7 @@
       // Transfer friction slider
       document.getElementById('transferFrictionSlider').addEventListener('input', (e) => {
         params.transferFriction = parseFloat(e.target.value);
-        document.getElementById('frictionValue').textContent = `Friction: ${params.transferFriction.toFixed(2)}`;
-      });
-      
-      // Risk aversion slider
-      document.getElementById('riskAversionSlider').addEventListener('input', (e) => {
-        params.riskAversion = parseFloat(e.target.value);
-        document.getElementById('riskAversionValue').textContent = `α: ${params.riskAversion.toFixed(1)}`;
-        // Update all utilities since the function changed
-        if (agents.length > 0) {
-          agents.forEach(agent => {
-            agent.utility = calculateUtility(agent.consumption);
-          });
-          updateAgentColors();
-          updateStats();
-        }
+        document.getElementById('frictionValue').textContent = `Friction: ${params.transferFriction.toFixed(3)}`;
       });
       
       // Agent count slider
@@ -356,24 +503,10 @@
         updateAgentSizes();
       });
       
-      // Connection width slider
-      document.getElementById('connectionWidthSlider').addEventListener('input', (e) => {
-        displayParams.connectionWidth = parseFloat(e.target.value);
-        document.getElementById('connectionWidthValue').textContent = `Width: ${displayParams.connectionWidth.toFixed(1)}`;
-        updateConnectionWidths();
-      });
-      
-      // Utility threshold slider
-      document.getElementById('utilityThresholdSlider').addEventListener('input', (e) => {
-        displayParams.utilityThreshold = parseFloat(e.target.value);
-        document.getElementById('thresholdValue').textContent = `Threshold: ${displayParams.utilityThreshold.toFixed(1)}`;
-        updateAgentColors();
-      });
-      
-      // Show emojis toggle
-      document.getElementById('showEmojisToggle').addEventListener('change', (e) => {
-        displayParams.showEmojis = e.target.checked;
-        updateEmojisVisibility();
+      // Show labels toggle
+      document.getElementById('showLabelsToggle').addEventListener('change', (e) => {
+        displayParams.showLabels = e.target.checked;
+        updateLabelsVisibility();
       });
       
       // Show transfers toggle
@@ -437,11 +570,11 @@
     // Update agent sizes
     function updateAgentSizes() {
       agents.forEach(agent => {
-        // Base size scaled by display parameter
+        // Apply base scale
         let baseScale = displayParams.nodeSize;
         
         // Additional scaling based on utility or other factors
-        let utilityScale = 0.8 + (agent.utility / 2) * 0.4; // Utility is typically 0-2
+        let utilityScale = 0.8 + Math.min(0.4, agent.utility * 0.1); // Cap scaling factor
         
         // Apply scale
         let finalScale = baseScale * utilityScale;
@@ -449,23 +582,10 @@
       });
     }
     
-    // Update connection widths
-    function updateConnectionWidths() {
-      connections.forEach(conn => {
-        // Each connection's line has a material we can update
-        if (conn.object && conn.object.material) {
-          // We can only update the opacity to make it more visible
-          conn.object.material.opacity = 0.4 * displayParams.connectionWidth;
-        }
-      });
-    }
-    
-    // Update emojis visibility
-    function updateEmojisVisibility() {
-      agents.forEach(agent => {
-        if (agent.emojiElement) {
-          agent.emojiElement.style.display = displayParams.showEmojis ? 'block' : 'none';
-        }
+    // Update labels visibility
+    function updateLabelsVisibility() {
+      debugLabels.forEach(label => {
+        label.style.display = displayParams.showLabels ? 'block' : 'none';
       });
     }
     
@@ -474,6 +594,42 @@
       connections.forEach(conn => {
         if (conn.object) {
           conn.object.visible = displayParams.showConnections;
+        }
+      });
+    }
+    
+    // Create debug label for agent
+    function createDebugLabel(agent, index) {
+      const label = document.createElement('div');
+      label.className = 'debug-label';
+      label.style.display = displayParams.showLabels ? 'block' : 'none';
+      document.body.appendChild(label);
+      
+      // Update label content
+      updateDebugLabel(label, agent, index);
+      
+      return label;
+    }
+    
+    // Update debug label
+    function updateDebugLabel(label, agent, index) {
+      label.innerHTML = `
+        <div>#${index}</div>
+        <div>U: ${agent.utility.toFixed(2)}</div>
+        <div>$: ${agent.consumption.toFixed(1)}</div>
+      `;
+      
+      // Position label near agent
+      const screenPos = toScreenPosition(agent.mesh, camera, renderer);
+      label.style.left = (screenPos.x + 15) + 'px';
+      label.style.top = (screenPos.y - 20) + 'px';
+    }
+    
+    // Update all debug labels
+    function updateLabelPositions() {
+      agents.forEach((agent, index) => {
+        if (index < debugLabels.length) {
+          updateDebugLabel(debugLabels[index], agent, index);
         }
       });
     }
@@ -575,7 +731,7 @@
           const material = new THREE.LineBasicMaterial({
             color: 0x88aaff,
             transparent: true,
-            opacity: 0.4 * displayParams.connectionWidth
+            opacity: 0.4
           });
           
           const line = new THREE.Line(geometry, material);
@@ -585,6 +741,9 @@
           conn.object = line;
         }
       });
+      
+      // Update label positions
+      setTimeout(updateLabelPositions, 100);
     }
     
     // Update agent colors based on selected mode
@@ -593,9 +752,8 @@
         let color;
         
         if (displayParams.colorMode === 'utility') {
-          // Color based on utility relative to the utility threshold
-          const maxUtility = 2 * displayParams.utilityThreshold;
-          const normalizedUtility = Math.min(1, agent.utility / maxUtility);
+          // Color based on utility with a simple gradient
+          const normalizedUtility = Math.min(1, agent.utility / 5); // Cap at 5 for color purposes
           
           if (normalizedUtility > 0.66) {
             color = highUtilityColor;
@@ -603,11 +761,6 @@
             color = medUtilityColor;
           } else {
             color = lowUtilityColor;
-          }
-          
-          // Update emoji face
-          if (agent.emojiElement) {
-            agent.emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
           }
         } 
         else if (displayParams.colorMode === 'income') {
@@ -618,11 +771,6 @@
           
           // Interpolate between low and high income colors
           color = lowIncomeColor.clone().lerp(highIncomeColor, normalizedIncome);
-          
-          // Update emoji to show income level
-          if (agent.emojiElement) {
-            agent.emojiElement.textContent = normalizedIncome > 0.66 ? '💰' : normalizedIncome > 0.33 ? '💼' : '👝';
-          }
         } 
         else if (displayParams.colorMode === 'transfers') {
           // Color based on transfer activity
@@ -632,17 +780,15 @@
           
           // Interpolate between low and high transfer colors
           color = lowTransferColor.clone().lerp(highTransferColor, normalizedTransfers);
-          
-          // Update emoji to show transfer activity
-          if (agent.emojiElement) {
-            agent.emojiElement.textContent = normalizedTransfers > 0.66 ? '🔄' : normalizedTransfers > 0.33 ? '↔️' : '⏹️';
-          }
         }
         
         // Apply color
         if (agent.mesh && agent.mesh.material) {
           agent.mesh.material.color.copy(color);
         }
+        
+        // Update labels
+        updateDebugLabels();
       });
     }
     
@@ -651,6 +797,15 @@
       connections.forEach(conn => {
         // Keep the random component but update the base strength
         conn.strength = params.altruismStrength * conn.randomFactor;
+      });
+    }
+    
+    // Update debug label for agents
+    function updateDebugLabels() {
+      agents.forEach((agent, index) => {
+        if (index < debugLabels.length) {
+          updateDebugLabel(debugLabels[index], agent, index);
+        }
       });
     }
     
@@ -678,17 +833,16 @@
       return incomes;
     }
     
-    // Calculate utility given a consumption level using CARA utility
+    // Calculate utility using simple log utility function
     function calculateUtility(consumption) {
-      // CARA utility function: (1 - e^(-α*c))/α
-      const alpha = params.riskAversion;
-      return (1 - Math.exp(-alpha * consumption)) / alpha;
+      // Using log utility: ln(consumption) - simpler and more intuitive for visualization
+      return Math.log(Math.max(0.1, consumption));
     }
     
     // Calculate marginal utility
     function calculateMarginalUtility(consumption) {
-      const alpha = params.riskAversion;
-      return Math.exp(-alpha * consumption);
+      // Derivative of log utility: 1/consumption
+      return 1 / Math.max(0.1, consumption);
     }
     
     // Create agents and connections
@@ -742,9 +896,8 @@
         const consumption = incomes[i];
         const utility = calculateUtility(consumption);
         
-        // Normalize utility for display - using the threshold
-        const maxUtility = 2 * displayParams.utilityThreshold; 
-        const normalizedUtility = Math.min(1, utility / maxUtility);
+        // Normalize utility for display
+        const normalizedUtility = Math.min(1, utility / 5);
         
         let color;
         if (normalizedUtility > 0.66) {
@@ -761,18 +914,20 @@
         
         // Apply base size scaling
         const baseScale = displayParams.nodeSize;
-        const utilityScale = 0.8 + normalizedUtility * 0.4;
+        const utilityScale = 0.8 + Math.min(0.4, utility * 0.1);
         const finalScale = baseScale * utilityScale;
         mesh.scale.set(finalScale, finalScale, finalScale);
         
         scene.add(mesh);
         
-        // Create emoji element
-        const emojiElement = document.createElement('div');
-        emojiElement.className = 'emoji-face';
-        emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
-        emojiElement.style.display = displayParams.showEmojis ? 'block' : 'none';
-        document.body.appendChild(emojiElement);
+        // Create debug label
+        const label = createDebugLabel({
+          mesh: mesh,
+          utility: utility,
+          consumption: consumption,
+          position: position
+        }, i);
+        debugLabels.push(label);
         
         // Store agent data
         agents.push({
@@ -781,9 +936,9 @@
           consumption: consumption,
           utility: utility,
           position: position,
-          emojiElement: emojiElement,
           lastUpdated: 0,
-          transferCount: 0 // Track how many transfers this agent is involved in
+          transferCount: 0,
+          utilityHistory: [utility] // Initialize utility history
         });
       }
       
@@ -799,6 +954,7 @@
       params.transferCount = 0;
       
       updateStats();
+      updateDebugDisplay();
     }
     
     // Create connections between agents
@@ -853,7 +1009,7 @@
       const material = new THREE.LineBasicMaterial({
         color: 0x88aaff,
         transparent: true,
-        opacity: 0.4 * displayParams.connectionWidth
+        opacity: 0.4
       });
       
       const line = new THREE.Line(geometry, material);
@@ -971,9 +1127,6 @@
       // Remove agents
       agents.forEach(agent => {
         scene.remove(agent.mesh);
-        if (agent.emojiElement) {
-          document.body.removeChild(agent.emojiElement);
-        }
       });
       
       // Remove connections
@@ -986,10 +1139,19 @@
         scene.remove(particle.mesh);
       });
       
+      // Remove debug labels
+      debugLabels.forEach(label => {
+        document.body.removeChild(label);
+      });
+      
       agents = [];
       connections = [];
       activeTransfers = [];
       transferParticles = [];
+      debugLabels = [];
+      
+      // Hide agent panel
+      hideAgentPanel();
     }
     
     // Reset simulation
@@ -1040,6 +1202,12 @@
         // Update utility
         agents[targetIdx].utility = calculateUtility(agents[targetIdx].consumption);
         
+        // Track utility history
+        agents[targetIdx].utilityHistory.push(agents[targetIdx].utility);
+        if (agents[targetIdx].utilityHistory.length > 50) {
+          agents[targetIdx].utilityHistory.shift();
+        }
+        
         // Update appearance
         updateAgentAppearance(agents[targetIdx]);
         
@@ -1084,9 +1252,16 @@
       
       // Update stats
       updateStats();
+      updateDebugDisplay();
       
-      // Update colors if needed
+      // Update colors and labels
       updateAgentColors();
+      updateDebugLabels();
+      
+      // Update agent panel if needed
+      if (selectedAgent) {
+        selectAgent(selectedAgent);
+      }
     }
     
     // Calculate Gini coefficient (inequality measure)
@@ -1110,11 +1285,17 @@
     
     // Update simulation statistics
     function updateStats() {
-      // Calculate average utility
+      // Calculate min, max, and average utility
       let totalUtility = 0;
+      let minUtility = Infinity;
+      let maxUtility = -Infinity;
+      
       for (const agent of agents) {
         totalUtility += agent.utility;
+        minUtility = Math.min(minUtility, agent.utility);
+        maxUtility = Math.max(maxUtility, agent.utility);
       }
+      
       const avgUtility = totalUtility / agents.length;
       
       // Calculate consumption inequality (Gini coefficient)
@@ -1135,11 +1316,25 @@
       // Update UI
       document.getElementById('iterationCount').textContent = `Iteration: ${params.iterationCount}`;
       document.getElementById('avgUtility').textContent = `Average Utility: ${avgUtility.toFixed(3)}`;
+      document.getElementById('minMaxUtility').textContent = `Utility Range: [${minUtility.toFixed(2)}, ${maxUtility.toFixed(2)}]`;
       document.getElementById('transferCount').textContent = `Transfers: ${params.transferCount}`;
       document.getElementById('inequalityMeasure').textContent = `Consumption Gini: ${giniCoefficient.toFixed(3)}`;
       
       // Draw graph
       drawUtilityGraph();
+    }
+    
+    // Update debug display
+    function updateDebugDisplay() {
+      // Display detailed utility values in the debug panel
+      const debugValues = document.getElementById('debugValues');
+      let debugText = 'Current Utilities:\n';
+      
+      agents.forEach((agent, idx) => {
+        debugText += `Agent #${idx}: ${agent.utility.toFixed(2)} (${agent.consumption.toFixed(1)})\n`;
+      });
+      
+      debugValues.textContent = debugText;
     }
     
     // Draw utility graph
@@ -1181,8 +1376,8 @@
       // No data to draw
       if (utilityHistory.length < 2) return;
       
-      // Find max utility for scaling
-      const maxUtility = Math.max(...utilityHistory, 2);
+      // Find max utility for scaling - use a comfortable range
+      const maxUtility = Math.max(...utilityHistory) * 1.2;
       
       // Draw utility history
       ctx.strokeStyle = 'rgba(255, 119, 255, 0.8)';
@@ -1219,12 +1414,18 @@
       ctx.stroke();
       
       // Draw legend
-      ctx.font = '12px Arial';
+      ctx.font = '10px Arial';
       ctx.fillStyle = 'rgba(255, 119, 255, 0.8)';
       ctx.fillText('Utility', 10, 15);
       
       ctx.fillStyle = 'rgba(119, 255, 255, 0.8)';
       ctx.fillText('Inequality', 70, 15);
+      
+      // Draw current values
+      if (utilityHistory.length > 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillText(`Current: ${utilityHistory[utilityHistory.length-1].toFixed(2)}`, 10, 30);
+      }
     }
     
     // Helper function to convert 3D position to screen position
@@ -1244,11 +1445,12 @@
     }
     
     // Simulation step - process transfers for one iteration
-    function simulationStep() {
-      if (params.isPaused) return;
-      
+    function simulateOneStep() {
       // Increment iteration counter
       params.iterationCount++;
+      
+      // Track if any transfers were made
+      let transfersMade = false;
       
       // Process potential transfers for each connection
       for (let i = 0; i < params.simulationSpeed; i++) {
@@ -1269,7 +1471,6 @@
             giver.consumption > receiver.consumption) {
             
           // Calculate optimal transfer amount (use much smaller coefficient)
-          // This is the key change - using 0.01 instead of 0.1 means much slower transfers
           const maxTransferAmount = (giver.consumption - receiver.consumption) * 0.01 * conn.strength;
           
           // Apply friction to slow down transfers even more
@@ -1286,11 +1487,19 @@
             giver.utility = calculateUtility(giver.consumption);
             receiver.utility = calculateUtility(receiver.consumption);
             
+            // Add to utility history
+            giver.utilityHistory.push(giver.utility);
+            receiver.utilityHistory.push(receiver.utility);
+            
+            // Limit history length
+            if (giver.utilityHistory.length > 50) giver.utilityHistory.shift();
+            if (receiver.utilityHistory.length > 50) receiver.utilityHistory.shift();
+            
             // Track transfer activity
             giver.transferCount = (giver.transferCount || 0) + 1;
             receiver.transferCount = (receiver.transferCount || 0) + 1;
             
-            // Update colors
+            // Update appearances
             updateAgentAppearance(giver);
             updateAgentAppearance(receiver);
             
@@ -1303,19 +1512,25 @@
             // Record when the agent was last updated
             giver.lastUpdated = params.iterationCount;
             receiver.lastUpdated = params.iterationCount;
+            
+            transfersMade = true;
           }
         }
       }
       
-      // Update stats every 10 iterations
-      if (params.iterationCount % 10 === 0) {
-        updateStats();
+      // Update stats
+      updateStats();
+      updateDebugDisplay();
+      
+      // Update labels
+      updateDebugLabels();
+      
+      // Update agent panel if needed
+      if (selectedAgent) {
+        selectAgent(selectedAgent);
       }
       
-      // Update colors in transfers mode every 30 iterations
-      if (displayParams.colorMode === 'transfers' && params.iterationCount % 30 === 0) {
-        updateAgentColors();
-      }
+      return transfersMade;
     }
     
     // Update agent appearance based on utility
@@ -1325,18 +1540,17 @@
       
       // Additional utility-based scaling
       const utility = agent.utility;
-      // Use utility threshold for normalization
-      const maxUtility = 2 * displayParams.utilityThreshold;
-      const normalizedUtility = Math.min(1, utility / maxUtility);
-      const utilityScale = 0.8 + normalizedUtility * 0.4;
+      const utilityScale = 0.8 + Math.min(0.4, utility * 0.1);
       
       // Set final scale
       const finalScale = baseScale * utilityScale;
       agent.mesh.scale.set(finalScale, finalScale, finalScale);
       
-      // Update color and emoji based on display mode
+      // Update color based on display mode
       if (displayParams.colorMode === 'utility') {
         // Color based on utility level
+        const normalizedUtility = Math.min(1, utility / 5);
+        
         let color;
         if (normalizedUtility > 0.66) {
           color = highUtilityColor;
@@ -1347,35 +1561,6 @@
         }
         
         agent.mesh.material.color.copy(color);
-        
-        // Update emoji
-        if (agent.emojiElement) {
-          agent.emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
-        }
-      }
-    }
-    
-    // Update emoji positions
-    function updateEmojiPositions() {
-      for (const agent of agents) {
-        if (agent.emojiElement) {
-          const screenPos = toScreenPosition(agent.mesh, camera, renderer);
-          agent.emojiElement.style.left = (screenPos.x - 12) + 'px';
-          agent.emojiElement.style.top = (screenPos.y - 12) + 'px';
-          
-          // Show/hide based on camera distance and settings
-          const distance = camera.position.distanceTo(agent.mesh.position);
-          agent.emojiElement.style.display = 
-            (displayParams.showEmojis && distance < 80) ? 'block' : 'none';
-          
-          // Highlight recently updated agents
-          const timeSinceUpdate = params.iterationCount - agent.lastUpdated;
-          if (timeSinceUpdate < 3) {
-            agent.emojiElement.style.textShadow = '0 0 5px white';
-          } else {
-            agent.emojiElement.style.textShadow = '0 0 3px black';
-          }
-        }
       }
     }
     
@@ -1383,14 +1568,17 @@
     function animate() {
       requestAnimationFrame(animate);
       
-      // Simulation step
-      simulationStep();
+      // Simulation step if not paused
+      if (!params.isPaused && !params.stepMode) {
+        simulateOneStep();
+      }
+      params.stepMode = false;
       
       // Update transfer particles
       updateTransferParticles();
       
-      // Update emoji positions
-      updateEmojiPositions();
+      // Update label positions
+      updateLabelPositions();
       
       // Render scene
       renderer.render(scene, camera);
