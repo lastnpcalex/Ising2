@@ -1,1278 +1,1371 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta charset="UTF-8" />
-    <title>Ising&sup2; this time it's personal</title>
-
-    <!-- THREE.js Core + OrbitControls -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r132/three.min.js"></script>
-    <script src="js/OrbitControls.js"></script>
-
-    <!-- Postprocessing: EffectComposer, RenderPass, Bloom, Glitch -->
-    <script src="js/EffectComposer.js"></script>
-    <script src="js/RenderPass.js"></script>
-    <script src="js/UnrealBloomPass.js"></script>
-    <script src="js/GlitchPass.js"></script>
-    <script src="js/CopyShader.js"></script>
-    <script src="js/ShaderPass.js"></script>
-    <script src="js/LuminosityHighPassShader.js"></script>
-    <script src="js/DigitalGlitch.js"></script>
-
-    <!-- dat.GUI -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
-
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-      body {
-        margin: 0;
-        overflow: hidden;
-        background-color: #000;
-        font-family: 'VT323', monospace;
-      }
-
-      /* "Vaporwave 3D Ising Model" text at lower-left corner */
-      #info {
-        position: absolute;
-        bottom: 10px;
-        left: 10px;
-        color: white;
-        z-index: 100;
-        font-size: 18px;
-      }
-
-      /*
-        Container for the magnetization graph is NOT absolutely positioned.
-        We'll rely on dat.GUI to place it. We simply set width:100% so it
-        fills the panel width.
-      */
-      #magContainer {
-        width: 100%;
-        background: rgba(0, 0, 0, 0.3);
-        color: #fff;
-        font-size: 14px;
-        padding: -2px;
-      }
-      #magLabel {
-        margin-bottom: 4px;
-        margin-top: 20px;
-        font-weight: bold;
-        font-size: 16px;
-      }
-      #magGraph {
-        display: block;
-        width: 100%;
-        height: 100px;
-        background: rgba(0, 0, 0, 0.3);
-      }
-
-      /* Vaporwave-styled Modal Pop-up */
-      #phaseModal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(20, 20, 20, 0.7);
-        backdrop-filter: blur(5px);
-        z-index: 300;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      #phaseModalContent {
-        background: linear-gradient(135deg, rgba(255,105,180,0.8), rgba(138,43,226,0.8));
-        border: 2px solid rgba(255, 255, 255, 0.8);
-        border-radius: 15px;
-        box-shadow: 0 0 15px rgba(255,105,180,0.8);
-        padding: 20px 30px;
-        text-align: center;
-        color: #fff;
-      }
-      #phaseModalButton {
-        background: rgba(255,255,255,0.3);
-        border: none;
-        border-radius: 5px;
-        color: #fff;
-        padding: 10px 20px;
-        font-size: 16px;
-        margin-top: 15px;
-        cursor: pointer;
-        transition: background 0.3s ease;
-      }
-      #phaseModalButton:hover {
-        background: rgba(255,255,255,0.5);
-      }
-
-      /* Speech Bubble Container */
-      #bubbleLayer {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        z-index: 400;
-      }
-      .speech-bubble {
-        position: absolute;
-        transform: translate(-50%, -50%);
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.4);
-        border-radius: 10px;
-        color: #fff;
-        padding: 5px 10px;
-        font-size: 14px;
-        backdrop-filter: blur(3px);
-        box-shadow: 0 0 5px rgba(255,255,255,0.5);
-        animation: bubbleFade 2s forwards;
-      }
-      @keyframes bubbleFade {
-        0% { opacity: 1; }
-        80% { opacity: 1; }
-        100% { opacity: 0; }
-      }
-
-      /* Hide/Show UI button near the bottom-left text */
-      #uiToggleContainer {
-        position: absolute;
-        bottom: 10px;
-        left: 300px;
-        width: 100px;
-        height: 100px;
-        z-index: 1000;
-      }
-      #uiToggleButton {
-        position: absolute;
-        left: -285px;
-        bottom: 15px;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-        background: rgba(0, 0, 0, 0.5);
-        color: #fff;
-        border: none;
-        border-radius: 5px;
-        padding: 5px 10px;
-        cursor: pointer;
-      }
-      #uiToggleContainer:hover #uiToggleButton {
-        opacity: 1;
-      }
-    </style>
-
-    <!-- Vertex Shader for final composite -->
-    <script id="vertexshader" type="x-shader/x-vertex">
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-      }
-    </script>
-
-    <!-- Fragment Shader for final composite -->
-    <script id="fragmentshader" type="x-shader/x-fragment">
-      uniform sampler2D baseTexture;
-      uniform sampler2D bloomTexture;
-      varying vec2 vUv;
-      void main() {
-        vec4 base = texture2D( baseTexture, vUv );
-        vec4 bloom = texture2D( bloomTexture, vUv );
-        gl_FragColor = base + bloom;
-      }
-    </script>
-  </head>
-  <body>
-    <!-- "Vaporwave 3D Ising Model" at the bottom-left -->
-    <div id="info">Vaporwave 3D Ising Model — drag to rotate, scroll to zoom</div>
-
-    <!-- Container for the Magnetization Graph (not absolutely positioned) -->
-    <div id="magContainer" style="display:none;">
-      <div id="magLabel">Magnetization</div>
-      <canvas id="magGraph" width="300" height="100"></canvas>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gradual Altruism Network Simulation</title>
+  <style>
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background-color: #000; 
+      font-family: Arial, sans-serif; 
+      color: #fff;
+    }
+    #info { 
+      position: absolute; 
+      bottom: 10px; 
+      left: 10px; 
+      color: white; 
+      z-index: 100; 
+      font-size: 16px;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 5px;
+    }
+    #simulationStats {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 14px;
+      max-width: 300px;
+    }
+    #simulationControls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 14px;
+      z-index: 1000;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    #simulationControls h3 {
+      margin-top: 10px;
+      margin-bottom: 5px;
+      color: #aaddff;
+    }
+    #simulationControls button {
+      background: #4a5fa3;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      margin: 5px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    #simulationControls button:hover {
+      background: #677bc4;
+    }
+    #simulationControls button.active {
+      background: #ff77aa;
+    }
+    .control-group {
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+    #utilityGraph {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+    }
+    canvas {
+      display: block;
+    }
+    .emoji-face {
+      position: absolute;
+      font-size: 24px;
+      color: white;
+      text-shadow: 0 0 3px black;
+      opacity: 0.9;
+    }
+    label {
+      display: block;
+      margin-top: 5px;
+      margin-bottom: 3px;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    .value-display {
+      font-size: 12px;
+      color: #cccccc;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">Gradual Altruism Network Simulation — drag to rotate, scroll to zoom</div>
+  
+  <div id="simulationStats">
+    <h3>Simulation Statistics</h3>
+    <div id="iterationCount">Iteration: 0</div>
+    <div id="avgUtility">Average Utility: 0</div>
+    <div id="transferCount">Transfers: 0</div>
+    <div id="inequalityMeasure">Consumption Gini: 0</div>
+  </div>
+  
+  <div id="simulationControls">
+    <h3>Simulation Controls</h3>
+    <div class="control-group">
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset</button>
+      <button id="shockBtn">Add Income Shock</button>
+      
+      <label for="simSpeedSlider">Simulation Speed:</label>
+      <input type="range" id="simSpeedSlider" min="1" max="20" value="3">
+      <div id="simSpeedValue" class="value-display">Speed: 3</div>
+      
+      <label for="altruismStrength">Altruism Strength:</label>
+      <input type="range" id="altruismStrength" min="0.1" max="2" step="0.1" value="1">
+      <div id="altruismValue" class="value-display">Strength: 1.0</div>
+      
+      <label for="incomeInequalitySlider">Income Inequality:</label>
+      <input type="range" id="incomeInequalitySlider" min="0.1" max="5" step="0.1" value="3">
+      <div id="inequalityValue" class="value-display">Inequality: 3.0</div>
+      
+      <label for="transferFrictionSlider">Transfer Friction:</label>
+      <input type="range" id="transferFrictionSlider" min="0.0" max="0.99" step="0.01" value="0.9">
+      <div id="frictionValue" class="value-display">Friction: 0.9</div>
+      
+      <label for="agentCountSlider">Number of Agents:</label>
+      <input type="range" id="agentCountSlider" min="10" max="50" step="1" value="30">
+      <div id="agentCountValue" class="value-display">Agents: 30</div>
     </div>
-
-    <!-- Vaporwave-styled Modal -->
-    <div id="phaseModal">
-      <div id="phaseModalContent">
-        <p id="phaseModalText"></p>
-        <button id="phaseModalButton">OK</button>
+    
+    <h3>Display Options</h3>
+    <div class="control-group">
+      <label for="nodeSizeSlider">Node Size:</label>
+      <input type="range" id="nodeSizeSlider" min="0.5" max="3" step="0.1" value="1">
+      <div id="nodeSizeValue" class="value-display">Size: 1.0</div>
+      
+      <label for="connectionWidthSlider">Connection Width:</label>
+      <input type="range" id="connectionWidthSlider" min="0.5" max="3" step="0.1" value="1">
+      <div id="connectionWidthValue" class="value-display">Width: 1.0</div>
+      
+      <div>
+        <label for="showEmojisToggle">Show Faces:</label>
+        <input type="checkbox" id="showEmojisToggle" checked>
+      </div>
+      
+      <div>
+        <label for="showTransfersToggle">Show Transfers:</label>
+        <input type="checkbox" id="showTransfersToggle" checked>
+      </div>
+      
+      <div>
+        <label for="showConnectionsToggle">Show Connections:</label>
+        <input type="checkbox" id="showConnectionsToggle" checked>
       </div>
     </div>
-
-    <div id="bubbleLayer"></div>
-
-    <!-- Hide/Show UI Button Container -->
-    <div id="uiToggleContainer">
-      <button id="uiToggleButton">Hide UI</button>
+    
+    <h3>Visualization Mode</h3>
+    <div class="control-group">
+      <button id="colorByUtilityBtn" class="active">Color by Utility</button>
+      <button id="colorByIncomeBtn">Color by Income</button>
+      <button id="colorByTransfersBtn">Color by Transfers</button>
     </div>
-
-    <script>
-
-      // -------------------------------------------------
-      // Helper: Set tooltips for dat.gui
-      // -------------------------------------------------
-      function setTooltip(controller, tooltipText) {
-        requestAnimationFrame(() => {
-          if (controller.__li) {
-            controller.__li.title = tooltipText;
-          }
-        });
-      }
-
-      // -------------------------------------------------
-      // Global Variables
-      // -------------------------------------------------
-      let scene, camera, renderer, controls;
-      let composer, bloomComposer, finalComposer;
-      const darkMaterial = new THREE.MeshBasicMaterial({ color: "black" });
-      const materials = {}; // store original materials for darkening
-      const BLOOM_LAYER = 1;
-
-      let nodes = [];
-      let edges = [];
-      let ribbonSparks = [];
-
-      // Simulation speed
-      let simulationSpeed = 100;
-
-      // Timers
-      let lastSimUpdate = 0;
-      const simUpdateInterval = 100;
-
-      // Off-screen canvas for background
-      let bgCanvas, bgCtx, bgTexture;
-
-      // Magnetization
-      const maxHistoryLength = 200;
-      let magnetizationHistory = [];
-      let smoothedMag = 0;
-
-      // Graph
-      let graphCanvas, graphCtx;
-
-      let currentPhase = null;
-
-      let textureMap2 = {}, textureMap3 = {};
-
-      // Glitch
-      let glitchPass;
-      let glitchActive = false;
-      let glitchTimer = 0;
-      const glitchScale = 0.01;
-
-      // Layout
-      const LayoutMode = {
-        RANDOM:"Random",
-        SPHERE:"Sphere",
-        CALABI:"Spiral"
-      };
-
-      // Spin messages
-      const spinMessages = {
-        "1":"life is good",
-        "0":"i have no strong feelings",
-        "-1":"i want to study statistical mechanics"
-      };
-
-      // Fluctuation mode
-      let lastFluctuationTime = 0;
-      const fluctInterval = 500;
-
-      // Whether UI is hidden via button (affects whether we show pop-ups)
-      let uiHidden = false;
-
-      // -------------------------------------------------
-      // Parameters (incl. wave amplitude/frequency)
-      // -------------------------------------------------
-      const params = {
-        coupling:1.0,
-        temperature:1.0,
-        field:0.0,
-        numNodes:500,
-        spinBias:0.0,
-        neighborsCount:4,
-        density:2.5,
-        layout:LayoutMode.RANDOM,
-        useRibbons:false,
-        showConnectors:true,
-        threeSpin:false,
-        showFaces:true,
-        glitchEnabled:false,
-        showBubbles:false,
-        fluctuationMode:false,
-        showGraph:true,
-
-        // NEW: base amplitude/frequency + length-based scaling
-        baseWaveAmp:0.5,
-        waveAmpFactor:0.02,    // each unit of length adds 0.02 to wave amplitude
-        baseWaveFreq:1.0,
-        waveFreqFactor:0.1,   // each unit of length adds 0.1 to wave frequency
-
-        reinitialize:function(){
-          clearScene();
-          createNodesAndEdges();
-        }
-      };
-
-      const MIN_NODES=10;
-      const MAX_NODES=1500;
-
-      const spinColorPositive = new THREE.Color(0xff77ff);
-      const spinColorNegative = new THREE.Color(0x77ffff);
-      const spinColorNeutral  = new THREE.Color(0x666666);
-
-      // BG colors
-      const nightTop    = new THREE.Color("#0a0c37");
-      const nightBottom = new THREE.Color("#375971");
-      const dayTop      = new THREE.Color("#ff61c6");
-      const dayBottom   = new THREE.Color("#ff9900");
-
-      // Star texture
-      let starTexture;
-      const STAR_TEXTURE_URL="https://canada1.discourse-cdn.com/flex035/uploads/threejs/original/3X/7/4/746a82ae37c272afcb7ddf02dfd10c71061c546a.png";
-
-      // -------------------------------------------------
-      // initTextures()
-      // -------------------------------------------------
-      function initTextures(){
-        // 2-spin
-        textureMap2["1"] = createTextTexture(":)",60,"#000000");
-        textureMap2["-1"]= createTextTexture(":(",60,"#000000");
-
-        // 3-spin
-        textureMap3["1"] = createTextTexture(":)",60,"#000000");
-        textureMap3["0"] = createTextTexture(":|",60,"#000000");
-        textureMap3["-1"]= createTextTexture(":(",60,"#000000");
-
-        starTexture=new THREE.TextureLoader().load(STAR_TEXTURE_URL);
-      }
-
-      function createTextTexture(text,fontSize,textColor){
-        const canvas=document.createElement("canvas");
-        canvas.width=256;
-        canvas.height=256;
-        const ctx=canvas.getContext("2d");
-        ctx.clearRect(0,0,canvas.width,canvas.height);
-        ctx.font=fontSize+"px VT323, monospace";
-        ctx.fillStyle=textColor;
-        ctx.textAlign="center";
-        ctx.textBaseline="middle";
-        ctx.fillText(text,canvas.width/2,canvas.height/2);
-        const tex=new THREE.CanvasTexture(canvas);
-        tex.magFilter=THREE.LinearFilter;
-        tex.minFilter=THREE.LinearFilter;
-        tex.needsUpdate=true;
-        return tex;
-      }
-
-      // -------------------------------------------------
-      // init()
-      // -------------------------------------------------
-      function init(){
-        initTextures();
-        scene=new THREE.Scene();
-
-        camera=new THREE.PerspectiveCamera(60,window.innerWidth/window.innerHeight,0.1,10000);
-        camera.position.set(0,0,50);
-
-        renderer=new THREE.WebGLRenderer({antialias:true});
-        renderer.setSize(window.innerWidth,window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        controls=new THREE.OrbitControls(camera,renderer.domElement);
-
-        // BG
-        bgCanvas=document.createElement("canvas");
-        bgCanvas.width=128;
-        bgCanvas.height=128;
-        bgCtx=bgCanvas.getContext("2d");
-        bgTexture=new THREE.CanvasTexture(bgCanvas);
-        scene.background=bgTexture;
-
-        const ambientLight=new THREE.AmbientLight(0xffffff,0.6);
-        scene.add(ambientLight);
-        const directionalLight=new THREE.DirectionalLight(0xffffff,0.8);
-        directionalLight.position.set(0,1,1);
-        scene.add(directionalLight);
-
-        createNodesAndEdges();
-
-        graphCanvas=document.getElementById("magGraph");
-        graphCtx=graphCanvas.getContext("2d");
-
-        createGUI();
-        window.addEventListener("resize",onWindowResize,false);
-
-        // Modal
-        document.getElementById("phaseModalButton").addEventListener("click",()=>{
-          document.getElementById("phaseModal").style.display="none";
-        });
-        window.addEventListener("keydown",(event)=>{
-          if(event.key==="Enter"){
-            document.getElementById("phaseModal").style.display="none";
-          }
-        });
-
-        setupPostProcessing();
-        animate();
-      }
-
-      function onWindowResize(){
-        camera.aspect=window.innerWidth/window.innerHeight;
+    
+    <h3>Network Layout</h3>
+    <div class="control-group">
+      <button id="layoutCircleBtn" class="active">Circle</button>
+      <button id="layoutGridBtn">Grid</button>
+      <button id="layoutRandomBtn">Random</button>
+    </div>
+  </div>
+  
+  <div id="utilityGraph">
+    <canvas id="graphCanvas" width="300" height="150"></canvas>
+  </div>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  
+  <script>
+    // Global variables
+    let scene, camera, renderer, controls;
+    let agents = [];
+    let connections = [];
+    let activeTransfers = [];
+    let utilityHistory = [];
+    let inequalityHistory = [];
+    let transferParticles = [];
+    
+    // Display parameters
+    let displayParams = {
+      nodeSize: 1.0,
+      connectionWidth: 1.0,
+      showEmojis: true,
+      showTransfers: true,
+      showConnections: true,
+      colorMode: 'utility', // 'utility', 'income', 'transfers'
+      layout: 'circle' // 'circle', 'grid', 'random'
+    };
+    
+    // Simulation parameters
+    let params = {
+      numAgents: 30,
+      altruismStrength: 1.0,
+      incomeInequality: 3.0, // Higher inequality
+      transferFriction: 0.9, // High friction slows down transfers
+      simulationSpeed: 3,    // Lower initial speed
+      iterationCount: 0,
+      transferCount: 0,
+      isPaused: false
+    };
+    
+    // Colors for different utility levels
+    const highUtilityColor = new THREE.Color(0xff77ff); // Pink - happy
+    const medUtilityColor = new THREE.Color(0xffff77);  // Yellow - neutral
+    const lowUtilityColor = new THREE.Color(0x77ffff);  // Blue - sad
+    
+    // For income coloring
+    const lowIncomeColor = new THREE.Color(0x3333ff);   // Blue - poor
+    const highIncomeColor = new THREE.Color(0xff3333);  // Red - rich
+    
+    // For transfer coloring
+    const lowTransferColor = new THREE.Color(0x33ff33); // Green - low activity
+    const highTransferColor = new THREE.Color(0xffaa33); // Orange - high activity
+    
+    // Initialize scene
+    function init() {
+      // Create scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111133);
+      
+      // Setup camera
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 0, 50);
+      
+      // Setup renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      
+      // Add controls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      
+      // Add lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+      
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(0, 1, 1);
+      scene.add(directionalLight);
+      
+      // Initialize UI elements
+      setupUIControls();
+      
+      // Create agents and connections
+      createAgentsAndConnections();
+      
+      // Handle window resize
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth,window.innerHeight);
-        bloomComposer.setSize(window.innerWidth,window.innerHeight);
-        finalComposer.setSize(window.innerWidth,window.innerHeight);
-      }
-
-      // -------------------------------------------------
-      // setupPostProcessing()
-      // -------------------------------------------------
-      function setupPostProcessing(){
-        const renderScene=new THREE.RenderPass(scene, camera);
-
-        // Bloom
-        bloomComposer=new THREE.EffectComposer(renderer);
-        bloomComposer.setSize(window.innerWidth,window.innerHeight);
-        bloomComposer.renderToScreen = false;
-        bloomComposer.addPass(renderScene);
-        const bloomPass=new THREE.UnrealBloomPass(
-          new THREE.Vector2(window.innerWidth,window.innerHeight),
-          10,
-          1,
-          0.25
-        );
-        bloomComposer.addPass(bloomPass);
-
-        // Final
-        finalComposer=new THREE.EffectComposer(renderer);
-        finalComposer.setSize(window.innerWidth,window.innerHeight);
-        finalComposer.addPass(renderScene);
-        const finalPass=new THREE.ShaderPass(
-          new THREE.ShaderMaterial({
-            uniforms: {
-              baseTexture: { value: null },
-              bloomTexture: { value: bloomComposer.renderTarget2.texture }
-            },
-            vertexShader: document.getElementById('vertexshader').textContent,
-            fragmentShader: document.getElementById('fragmentshader').textContent
-          }),
-          "baseTexture"
-        );
-        finalPass.needsSwap = true;
-        finalComposer.addPass(finalPass);
-
-        // Glitch
-        glitchPass = new THREE.GlitchPass();
-        glitchPass.enabled = false;
-        finalComposer.addPass(glitchPass);
-      }
-
-      // -------------------------------------------------
-      // createGUI() - embed the #magContainer in a new folder
-      // -------------------------------------------------
-      let temperatureController, fieldController;
-      let gui, magContainer;
-      function createGUI(){
-        gui=new dat.GUI();
-
-        const c1=gui.add(params,"coupling",0.1,5,0.1).name("Coupling(J)");
-        setTooltip(c1,"Interaction strength between nodes.");
-
-        temperatureController = gui.add(params,"temperature",0.1,10,0.1).name("Temperature(T)");
-        setTooltip(temperatureController, "Thermal energy influencing node behavior (larger = more randomness).");
-
-        fieldController = gui.add(params,"field",-5,5,0.01).name("Field(H)");
-        setTooltip(fieldController, "External magnetic field applied to the system.");
-
-        const c4=gui.add(params,"spinBias",-1,1,0.1).name("SpinBias");
-        setTooltip(c4,"Bias for initial spin assignment (requires reinitialization).");
-
-        const c5=gui.add(params,"neighborsCount",1,6,1).name("Neighbors");
-        setTooltip(c5,"Desired number of neighbors per node (requires reinitialization).");
-
-        const c6=gui.add(params,"numNodes",MIN_NODES,MAX_NODES,1).name("Nodes");
-        setTooltip(c6,"Total number of nodes (requires reinitialization).");
-
-        const layoutControl = gui.add(params,"layout",[LayoutMode.RANDOM,LayoutMode.SPHERE,LayoutMode.CALABI])
-           .name("Layout");
-        setTooltip(layoutControl, "Choose the layout mode for node placement (requires reinitialization).");
-
-        // magnetization graph container into the GUI
-        magContainer = document.getElementById("magContainer");
-        magContainer.style.display = "block";
-        gui.domElement.appendChild(magContainer);
-
-        // Toggle ribbons
-        const c8 = gui.add(params,"useRibbons").name("Use Ribbons");
-        setTooltip(c8, "Switch between using ribbons (wavy connectors) and simple lines.");
-        c8.onChange(()=> switchEdgeStyle() );
-
-        const showConnectorsControl = gui.add(params,"showConnectors").name("Show Connectors");
-        setTooltip(showConnectorsControl, "Toggle visibility of the connectors between nodes.");
-
-        const c9=gui.add(params,"threeSpin").name("3 States");
-        setTooltip(c9,"Toggle 2 vs 3 spins.");
-        c9.onChange(()=>params.reinitialize());
-
-        const showFacesControl = gui.add(params,"showFaces").name("Show Faces");
-        setTooltip(showFacesControl, "Show or hide the faces on the nodes.");
-        const glitchEnabledControl = gui.add(params,"glitchEnabled").name("Enable Glitch");
-        setTooltip(glitchEnabledControl, "Enable a visual glitch effect based on system conditions.");
-        const showBubblesControl = gui.add(params,"showBubbles").name("Show Bubbles");
-        setTooltip(showBubblesControl, "Toggle display of speech bubbles that appear near nodes.");
-        const fluctuationModeControl = gui.add(params,"fluctuationMode").name("Fluctuation Mode");
-        setTooltip(fluctuationModeControl, "Enable random fluctuations in temperature and field.");
-
-        // Reinitialize
-        const reinitializeControl = gui.add(params, "reinitialize").name("Reinitialize");
-        setTooltip(reinitializeControl, "Reset and reinitialize the simulation with current settings.");
-
-        // --- Hook the dat.GUI close button so we also hide the magnetization graph ---
-        let closeButton = gui.domElement.getElementsByClassName("close-button");
-        if (closeButton.length > 0) {
-          let originalOnClick = closeButton[0].onclick;
-          closeButton[0].onclick = function(evt) {
-            if (originalOnClick) originalOnClick.call(this, evt);
-            magContainer.style.display = gui.closed ? "none" : "block";
-          };
-        }
-      }
-
-      // -------------------------------------------------
-      // switchEdgeStyle()
-      // -------------------------------------------------
-      function switchEdgeStyle(){
-        edges.forEach(e=> scene.remove(e.object));
-        ribbonSparks.forEach(s=> scene.remove(s.mesh));
-        ribbonSparks=[];
-
-        edges.forEach(e=>{
-          if(params.useRibbons){
-            const ribbonMesh = createRibbonMesh(e.posA,e.posB);
-            scene.add(ribbonMesh);
-            e.object=ribbonMesh;
-          } else {
-            const points=[e.posA,e.posB];
-            const geo=new THREE.BufferGeometry().setFromPoints(points);
-            const mat=new THREE.LineBasicMaterial({
-              color:0xffffff,
-              transparent:true,
-              opacity:0.5
-            });
-            const lineObj=new THREE.Line(geo,mat);
-            scene.add(lineObj);
-            e.object=lineObj;
-          }
-        });
-        createStarSprites();
-      }
-
-      // -------------------------------------------------
-      // createNodesAndEdges()
-      // -------------------------------------------------
-      function createNodesAndEdges(){
-        nodes=[];
-        edges=[];
-        ribbonSparks=[];
-        magnetizationHistory=[];
-
-        scene.traverse(obj=>{
-          if(obj.isMesh || obj.isLine || obj.isSprite){
-            scene.remove(obj);
-          }
-        });
-
-        // Create nodes
-        for(let i=0;i<params.numNodes;i++){
-          let spin;
-          if(params.threeSpin){
-            const r=Math.random();
-            if(r<1/3) spin=-1;
-            else if(r<2/3) spin=0;
-            else spin=1;
-          } else {
-            const p=0.5+params.spinBias*0.5;
-            spin=(Math.random()<p)?1:-1;
-          }
-          const basePos=new THREE.Vector3();
-          if(params.layout===LayoutMode.RANDOM){
-            basePos.set(
-              (Math.random()-0.5)*30,
-              (Math.random()-0.5)*30,
-              (Math.random()-0.5)*30
-            );
-          } else if(params.layout===LayoutMode.SPHERE){
-            const phi=2*Math.PI*Math.random();
-            const cosTheta=(Math.random()*2)-1;
-            const sinTheta=Math.sqrt(1-cosTheta*cosTheta);
-            const rr=15;
-            basePos.set(
-              rr*sinTheta*Math.cos(phi),
-              rr*sinTheta*Math.sin(phi),
-              rr*cosTheta
-            );
-          } else if(params.layout===LayoutMode.CALABI){
-            const angle=2*Math.PI*(i/params.numNodes)*4;
-            const rad=0.1*i;
-            basePos.set(
-              rad*Math.cos(angle),
-              rad*Math.sin(angle),
-              (Math.random()-0.5)*30
-            );
-          }
-          const mesh=createNode(spin, basePos);
-          scene.add(mesh);
-          nodes.push({
-            mesh,
-            spin,
-            basePos:basePos.clone(),
-            pos:basePos.clone()
-          });
-        }
-
-        // We'll try to get each node to have at least params.neighborsCount connections.
-        let neighborCount = new Array(nodes.length).fill(0);
-        let connected = new Set();
-
-        // Helper to add an edge
-        function addEdge(i,j) {
-          let obj;
-          if(params.useRibbons){
-            obj = createRibbonMesh(nodes[i].pos, nodes[j].pos);
-          } else {
-            const points=[nodes[i].pos, nodes[j].pos];
-            const geo=new THREE.BufferGeometry().setFromPoints(points);
-            const mat=new THREE.LineBasicMaterial({
-              color:0xffffff,
-              transparent:true,
-              opacity:0.5
-            });
-            obj=new THREE.Line(geo,mat);
-          }
-          scene.add(obj);
-          edges.push({
-            i, j,
-            object: obj,
-            posA: nodes[i].pos,
-            posB: nodes[j].pos
-          });
-          neighborCount[i]++;
-          neighborCount[j]++;
-        }
-
-        // First pass: try to add edges only if both nodes still need neighbors.
-        for(let i=0; i<nodes.length; i++){
-          let distances = [];
-          for(let j=0; j<nodes.length; j++){
-            if(i===j) continue;
-            const d = nodes[i].pos.distanceToSquared(nodes[j].pos);
-            distances.push({ j, d });
-          }
-          distances.sort((a,b)=> a.d - b.d);
-          for(let candidate of distances){
-            let j = candidate.j;
-            if(neighborCount[i] < params.neighborsCount && neighborCount[j] < params.neighborsCount){
-              let key = i + "-" + j, keyReverse = j + "-" + i;
-              if(!connected.has(key) && !connected.has(keyReverse)){
-                connected.add(key);
-                addEdge(i,j);
-              }
-            }
-            if(neighborCount[i]>=params.neighborsCount) break;
-          }
-        }
-
-        // Second pass: for any node still below target, add extra edges.
-        for(let i=0; i<nodes.length; i++){
-          if(neighborCount[i] < params.neighborsCount){
-            let distances = [];
-            for(let j=0; j<nodes.length; j++){
-              if(i===j) continue;
-              const d = nodes[i].pos.distanceToSquared(nodes[j].pos);
-              distances.push({ j, d });
-            }
-            distances.sort((a,b)=> a.d - b.d);
-            for(let candidate of distances){
-              let j = candidate.j;
-              let key = i + "-" + j, keyReverse = j + "-" + i;
-              if(!connected.has(key) && !connected.has(keyReverse)){
-                connected.add(key);
-                addEdge(i,j);
-                if(neighborCount[i]>=params.neighborsCount) break;
-              }
-            }
-          }
-        }
-        createStarSprites();
-        updateDensity();
-      }
-
-      function createNode(spin, basePos){
-        const geometry=new THREE.SphereGeometry(0.4,16,16);
-        let baseColor=spinColorPositive;
-        if(params.threeSpin){
-          if(spin===1) baseColor=spinColorPositive;
-          else if(spin===-1) baseColor=spinColorNegative;
-          else baseColor=spinColorNeutral;
-        } else {
-          baseColor=(spin>0)?spinColorPositive:spinColorNegative;
-        }
-        const mat=new THREE.MeshPhongMaterial({color:baseColor,emissive:0x111111});
-        const mesh=new THREE.Mesh(geometry,mat);
-        mesh.position.copy(basePos);
-
-        // sprite
-        let tex;
-        if(params.threeSpin){
-          tex=textureMap3[spin.toString()];
-        } else {
-          tex=textureMap2[spin.toString()];
-        }
-        const spriteMat=new THREE.SpriteMaterial({
-          map:tex,transparent:true,depthTest:true,depthWrite:false
-        });
-        const sprite=new THREE.Sprite(spriteMat);
-        sprite.scale.set(2,2,1);
-        sprite.position.set(0,0,0.01);
-        mesh.add(sprite);
-
-        return mesh;
-      }
-
-      // -------------------------------------------------
-      // createRibbonMesh() with envelope-modulated wave so endpoints are exact
-      // -------------------------------------------------
-      function createRibbonMesh(posA,posB){
-        const segments=15;
-        const width=0.2;
-
-        const dir=new THREE.Vector3().subVectors(posB,posA);
-        const length=dir.length();
-        dir.normalize();
-
-        // Compute wave amplitude/frequency depending on length.
-        const waveAmp = params.baseWaveAmp + length*params.waveAmpFactor;
-        const waveFreq= params.baseWaveFreq + length*params.waveFreqFactor;
-
-        const up=new THREE.Vector3(0,1,0);
-        if(Math.abs(dir.dot(up))>0.99) up.set(1,0,0);
-        const right=new THREE.Vector3().crossVectors(dir, up).normalize();
-        const localUp=new THREE.Vector3().crossVectors(right,dir).normalize();
-
-        const geometry=new THREE.BufferGeometry();
-        const positions=new Float32Array((segments+1)*2*3);
-        const colors=new Float32Array((segments+1)*2*3);
-        const indices=[];
-
-        const colorStart=new THREE.Color(0x856fd6);
-        const colorEnd=new THREE.Color(0x8d6fd6);
-
-        for(let i=0;i<=segments;i++){
-          const t=i/segments;
-          let vertColor=colorStart.clone().lerp(colorEnd,t);
-
-          let center=new THREE.Vector3().copy(posA)
-            .addScaledVector(dir,length*t);
-
-          // Use an envelope so that wave=0 at t=0 and t=1.
-          const envelope = Math.sin(t*Math.PI);
-          const wave = Math.sin(t*Math.PI*waveFreq) * envelope * waveAmp;
-          center.addScaledVector(localUp,wave);
-
-          let offsetL=new THREE.Vector3().copy(right).multiplyScalar(-width);
-          let offsetR=new THREE.Vector3().copy(right).multiplyScalar(width);
-
-          let idxL=i*2;
-          let idxR=i*2+1;
-
-          let vL=new THREE.Vector3().addVectors(center,offsetL);
-          positions[idxL*3+0]=vL.x;
-          positions[idxL*3+1]=vL.y;
-          positions[idxL*3+2]=vL.z;
-          colors[idxL*3+0]=vertColor.r;
-          colors[idxL*3+1]=vertColor.g;
-          colors[idxL*3+2]=vertColor.b;
-
-          let vR=new THREE.Vector3().addVectors(center,offsetR);
-          positions[idxR*3+0]=vR.x;
-          positions[idxR*3+1]=vR.y;
-          positions[idxR*3+2]=vR.z;
-          colors[idxR*3+0]=vertColor.r;
-          colors[idxR*3+1]=vertColor.g;
-          colors[idxR*3+2]=vertColor.b;
-        }
-
-        for(let i=0;i<segments;i++){
-          const i0=i*2;
-          const i1=i*2+1;
-          const i2=(i+1)*2;
-          const i3=(i+1)*2+1;
-          indices.push(i0,i1,i2);
-          indices.push(i1,i3,i2);
-        }
-
-        geometry.setIndex(indices);
-        geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
-        geometry.setAttribute("color",new THREE.BufferAttribute(colors,3));
-        geometry.computeVertexNormals();
-
-        const mat=new THREE.MeshLambertMaterial({
-          side:THREE.DoubleSide,
-          transparent:true,
-          opacity:0.5,
-          emissive:0x111111,
-          vertexColors:true
-        });
-        return new THREE.Mesh(geometry,mat);
-      }
-
-      // -------------------------------------------------
-      // createStarSprites()
-      // -------------------------------------------------
-      function createStarSprites(){
-        ribbonSparks=[];
-        edges.forEach((edge, idx)=>{
-          for(let k=0; k<2; k++){
-            const mat = new THREE.SpriteMaterial({
-              map: starTexture,
-              color: 0x1ad1ff,
-              blending: THREE.AdditiveBlending,
-              transparent: true,
-              depthWrite: false
-            });
-            const sprite=new THREE.Sprite(mat);
-            sprite.scale.set(0.5,0.5,1);
-            sprite.layers.enable(BLOOM_LAYER);
-            scene.add(sprite);
-            ribbonSparks.push({
-              edgeIndex: idx,
-              mesh: sprite,
-              progress: Math.random(),
-              speed: 0.005 + 0.003*Math.random()
-            });
-          }
-        });
-      }
-
-      // -------------------------------------------------
-      // updateDensity()
-      // -------------------------------------------------
-      function updateDensity(){
-        nodes.forEach(n=>{
-          n.pos.copy(n.basePos).multiplyScalar(params.density);
-          n.mesh.position.copy(n.pos);
-        });
-
-        edges.forEach(e=> scene.remove(e.object));
-        edges.forEach(e=>{
-          if(params.useRibbons){
-            const ribbon=createRibbonMesh(e.posA,e.posB);
-            scene.add(ribbon);
-            e.object=ribbon;
-          } else {
-            const points=[e.posA,e.posB];
-            const geo=new THREE.BufferGeometry().setFromPoints(points);
-            const mat=new THREE.LineBasicMaterial({
-              color:0x8d6fd6,
-              transparent:true,
-              opacity:0.5
-            });
-            const line=new THREE.Line(geo,mat);
-            scene.add(line);
-            e.object=line;
-          }
-        });
-
-        ribbonSparks.forEach(s=>scene.remove(s.mesh));
-        createStarSprites();
-      }
-
-      // -------------------------------------------------
-      // simulationStep()
-      // -------------------------------------------------
-      function simulationStep(){
-        const nLen = nodes.length;
-        for(let step=0; step<simulationSpeed; step++){
-          const i = Math.floor(Math.random()*nLen);
-          const node = nodes[i];
-          const s = node.spin;
-
-          let sumN=0;
-          edges.forEach(e=>{
-            if(e.i===i) sumN+=nodes[e.j].spin;
-            else if(e.j===i) sumN+=nodes[e.i].spin;
-          });
-
-          if(!params.threeSpin){
-            const deltaE=2*s*(params.coupling*sumN+params.field);
-            if(deltaE<=0 || Math.random()<Math.exp(-deltaE/params.temperature)){
-              node.spin = -s;
-              updateNodeAppearance(node);
-              maybeTriggerGlitch();
-              maybeShowSpeechBubble(node);
-            }
-          } else {
-            const possible=[-1,0,1].filter(v=>v!==s);
-            const candidate=possible[Math.floor(Math.random()*possible.length)];
-            const delta=candidate - s;
-            const deltaE=-params.coupling*delta*sumN - params.field*delta;
-            if(deltaE<=0 || Math.random()<Math.exp(-deltaE/params.temperature)){
-              node.spin=candidate;
-              updateNodeAppearance(node);
-              maybeTriggerGlitch();
-              maybeShowSpeechBubble(node);
-            }
-          }
-        }
-      }
-
-      function updateNodeAppearance(node){
-        if(!params.threeSpin){
-          node.mesh.material.color.copy(node.spin>0?spinColorPositive:spinColorNegative);
-          node.mesh.children[0].material.map=textureMap2[node.spin.toString()];
-        } else {
-          if(node.spin===1) node.mesh.material.color.copy(spinColorPositive);
-          else if(node.spin===-1) node.mesh.material.color.copy(spinColorNegative);
-          else node.mesh.material.color.copy(spinColorNeutral);
-          node.mesh.children[0].material.map=textureMap3[node.spin.toString()];
-        }
-        node.mesh.children[0].material.needsUpdate=true;
-      }
-
-      // -------------------------------------------------
-      // maybeTriggerGlitch()
-      // -------------------------------------------------
-      function maybeTriggerGlitch(){
-        if(!params.glitchEnabled)return;
-        const flipProb=params.temperature*glitchScale;
-        if(Math.random()<flipProb){
-          glitchPass.enabled=true;
-          glitchActive=true;
-          glitchTimer=5;
-        }
-      }
-
-      // -------------------------------------------------
-      // maybeShowSpeechBubble()
-      // -------------------------------------------------
-      function maybeShowSpeechBubble(node){
-        if(!params.showBubbles)return;
-        if(uiHidden) return;
-
-        const modal=document.getElementById("phaseModal");
-        if(modal.style.display!=="none")return;
-
-        if(Math.random()<0.005){
-          const msg=node.spin.toString();
-          showSpeechBubble(node, spinMessages[msg]);
-        }
-      }
-
-      function showSpeechBubble(node,text){
-        const bubbleLayer=document.getElementById("bubbleLayer");
-        const bubble=document.createElement("div");
-        bubble.className="speech-bubble";
-        bubble.innerText=text;
-        bubbleLayer.appendChild(bubble);
-
-        const screenPos=toScreenPosition(node.mesh,camera);
-        bubble.style.left=screenPos.x+"px";
-        bubble.style.top=screenPos.y+"px";
-
-        setTimeout(()=>{
-          if(bubbleLayer.contains(bubble)){
-            bubbleLayer.removeChild(bubble);
-          }
-        },2000);
-      }
-
-      function toScreenPosition(obj,cam){
-        let v=new THREE.Vector3();
-        obj.getWorldPosition(v);
-        v.project(cam);
-        let x=(v.x+1)/2*window.innerWidth;
-        let y=(-v.y+1)/2*window.innerHeight;
-        return {x,y};
-      }
-
-      // -------------------------------------------------
-      // updateSparks()
-      // -------------------------------------------------
-      function updateSparks(){
-        ribbonSparks.forEach(s=>{
-          s.progress+=s.speed;
-          if(s.progress>1) s.progress=0;
-
-          let e=edges[s.edgeIndex];
-          if(params.useRibbons){
-            s.mesh.position.copy( getWavyRibbonPosition(e, s.progress) );
-          } else {
-            let dir=new THREE.Vector3().subVectors(e.posB,e.posA);
-            let newPos=new THREE.Vector3().copy(e.posA).addScaledVector(dir, s.progress);
-            s.mesh.position.copy(newPos);
-          }
-
-          // Hide if near a sphere
-          let hide=false;
-          for(let n of nodes){
-            if(s.mesh.position.distanceTo(n.mesh.position)<1.0){
-              hide=true;
-              break;
-            }
-          }
-          s.mesh.visible=!hide;
-          let mat=s.mesh.material;
-          if(!hide){
-            mat.opacity=0.6 + 0.4*Math.random();
-          } else {
-            mat.opacity=0;
-          }
-          let sc=0.05+0.2*Math.random();
-          s.mesh.scale.set(sc, sc, sc);
-        });
-      }
-
-      // Modified getWavyRibbonPosition: use same envelope so endpoints match.
-      function getWavyRibbonPosition(edge, t){
-        const dir=new THREE.Vector3().subVectors(edge.posB,edge.posA);
-        const length=dir.length();
-        dir.normalize();
-
-        const waveAmp = params.baseWaveAmp + length*params.waveAmpFactor;
-        const waveFreq= params.baseWaveFreq + length*params.waveFreqFactor;
-
-        let center=new THREE.Vector3().copy(edge.posA)
-          .addScaledVector(dir, length*t);
-
-        let localUp=new THREE.Vector3(0,1,0);
-        if(Math.abs(dir.dot(localUp))>0.99) localUp.set(1,0,0);
-
-        let right=new THREE.Vector3().crossVectors(dir, localUp).normalize();
-        let finalUp=new THREE.Vector3().crossVectors(right, dir).normalize();
-
-        // Use envelope so endpoints are zero.
-        const envelope = Math.sin(t*Math.PI);
-        let wave=Math.sin(t*Math.PI*waveFreq)*envelope*waveAmp;
-        center.addScaledVector(finalUp, wave);
-
-        return center;
-      }
-
-      // -------------------------------------------------
-      // updateMagnetization()
-      // -------------------------------------------------
-      function updateMagnetization(){
-        let total=0;
-        for(let i=0;i<nodes.length;i++){
-          total+=nodes[i].spin;
-        }
-        let m=total/nodes.length;
-        magnetizationHistory.push(m);
-        if(magnetizationHistory.length>maxHistoryLength){
-          magnetizationHistory.shift();
-        }
-        smoothedMag+=0.01*(m - smoothedMag);
-        updateBackgroundGradient(smoothedMag);
-        if(params.showGraph) drawGraph();
-        detectPhaseChange(smoothedMag);
-      }
-
-      function updateBackgroundGradient(mVal){
-        const t = (mVal+1)/2;
-        const topColor=nightTop.clone().lerp(dayTop,t);
-        const bottomColor=nightBottom.clone().lerp(dayBottom,t);
-        bgCtx.clearRect(0,0,bgCanvas.width,bgCanvas.height);
-        let grad=bgCtx.createLinearGradient(0,0,0,bgCanvas.height);
-        grad.addColorStop(0,"#"+topColor.getHexString());
-        grad.addColorStop(1,"#"+bottomColor.getHexString());
-        bgCtx.fillStyle=grad;
-        bgCtx.fillRect(0,0,bgCanvas.width,bgCanvas.height);
-        bgTexture.needsUpdate=true;
-      }
-
-      function drawGraph(){
-        let w=graphCanvas.width, h=graphCanvas.height;
-        graphCtx.clearRect(0,0,w,h);
-        graphCtx.strokeStyle="#fff";
-        graphCtx.lineWidth=1;
-
-        // Axes
-        graphCtx.beginPath();
-        graphCtx.moveTo(30,10);
-        graphCtx.lineTo(30,90);
-        graphCtx.lineTo(280,90);
-        graphCtx.stroke();
-
-        graphCtx.fillStyle="#fff";
-        graphCtx.font="10px sans-serif";
-        graphCtx.fillText("1",5,15);
-        graphCtx.fillText("0",5,50);
-        graphCtx.fillText("-1",5,90);
-
-        // Data
-        graphCtx.beginPath();
-        graphCtx.strokeStyle="lime";
-        let len=magnetizationHistory.length;
-        for(let i=0;i<len;i++){
-          let x=30 + (i/(maxHistoryLength-1))*(280-30);
-          let mag=magnetizationHistory[i];
-          let y=90 - ((mag+1)*80)/2;
-          if(i===0) graphCtx.moveTo(x,y);
-          else graphCtx.lineTo(x,y);
-        }
-        graphCtx.stroke();
-      }
-
-      // -------------------------------------------------
-      // detectPhaseChange()
-      // -------------------------------------------------
-      function detectPhaseChange(mVal){
-        let newPhase=null;
-        if(mVal>0.7) newPhase="Positive Ferromagnetic Phase (Bright Future 😎)";
-        else if(mVal<-0.7) newPhase="Negative Ferromagnetic Phase (Cool Zone 😡)";
-        else if(Math.abs(mVal)<0.3) newPhase="Disordered Phase Paramagnetic (Neutral Zone 😐)";
-
-        if(newPhase && newPhase!==currentPhase){
-          currentPhase=newPhase;
-          triggerPhasePopup(newPhase);
-        }
-      }
-
-      function triggerPhasePopup(phaseDescription){
-        if(uiHidden) return;
-
-        const modal = document.getElementById("phaseModal");
-        const txt = document.getElementById("phaseModalText");
-        txt.textContent = "Congratulations! You have entered: " + phaseDescription;
-        modal.style.display = "flex";
-      }
-
-      // -------------------------------------------------
-      // clearScene()
-      // -------------------------------------------------
-      function clearScene(){
-        nodes.forEach(n=> scene.remove(n.mesh));
-        edges.forEach(e=> scene.remove(e.object));
-        ribbonSparks.forEach(s=> scene.remove(s.mesh));
-        nodes=[];
-        edges=[];
-        ribbonSparks=[];
-        magnetizationHistory=[];
-      }
-
-      // -------------------------------------------------
-      // updateSpriteOffsets()
-      // -------------------------------------------------
-      function updateSpriteOffsets(){
-        const camPos=camera.position;
-        const tempVec=new THREE.Vector3();
-        nodes.forEach(n=>{
-          const sprite=n.mesh.children[0];
-          if(!sprite) return;
-          n.mesh.getWorldPosition(tempVec);
-          const offsetDir=new THREE.Vector3().subVectors(camPos,tempVec).normalize();
-          sprite.position.copy(offsetDir.multiplyScalar(0.6));
-        });
-      }
-
-      // -------------------------------------------------
-      // Darken non-bloom objects
-      // -------------------------------------------------
-      function darkenNonBloomed(obj){
-        if(obj.isMesh && obj.layers.test(BLOOM_LAYER)===false){
-          materials[obj.uuid]=obj.material;
-          obj.material=darkMaterial;
-        }
-      }
-      function restoreMaterial(obj){
-        if(materials[obj.uuid]){
-          obj.material=materials[obj.uuid];
-          delete materials[obj.uuid];
-        }
-      }
-
-      // -------------------------------------------------
-      // animate()
-      // -------------------------------------------------
-      function animate(){
-        requestAnimationFrame(animate);
-
-        const currentTime=performance.now();
-
-        // Random-walk T & H
-        if(params.fluctuationMode && currentTime-lastFluctuationTime>fluctInterval){
-          lastFluctuationTime=currentTime;
-          const step=0.1;
-          params.temperature+=(Math.random()-0.5)*step;
-          params.temperature=Math.min(10,Math.max(0.1,params.temperature));
-          temperatureController.updateDisplay();
-
-          params.field+=(Math.random()-0.5)*step;
-          params.field=Math.min(5,Math.max(-5,params.field));
-          fieldController.updateDisplay();
-        }
-
-        if(currentTime-lastSimUpdate>simUpdateInterval){
-          simulationStep();
-          lastSimUpdate=currentTime;
-        }
-
-        updateMagnetization();
-        updateSpriteOffsets();
-        updateSparks();
-
-        // Toggle connectors & faces
-        edges.forEach(e=> e.object.visible=params.showConnectors);
-        nodes.forEach(n=>{
-          if(n.mesh.children[0]){
-            n.mesh.children[0].visible=params.showFaces;
-          }
-        });
-
-        // Glitch countdown
-        if(glitchActive){
-          glitchTimer--;
-          if(glitchTimer<=0){
-            glitchPass.enabled=false;
-            glitchActive=false;
-          }
-        }
-
-        // Bloom pass
-        scene.traverse(darkenNonBloomed);
-        camera.layers.set(BLOOM_LAYER);
-        bloomComposer.render();
-        camera.layers.set(0);
-        scene.traverse(restoreMaterial);
-
-        // Final
-        finalComposer.render();
-        controls.update();
-      }
-
-      init();
-
-      // -------------------------------------------------
-      // UI Toggle for everything except speech bubbles
-      // -------------------------------------------------
-      document.getElementById("uiToggleButton").addEventListener("click", function() {
-        uiHidden = !uiHidden;
-        let displayValue = uiHidden ? "none" : "";
-        let uiElements = ["info","phaseModal"];
-        uiElements.forEach(id=>{
-          let el=document.getElementById(id);
-          if(el){
-            el.style.display=displayValue;
-          }
-        });
-        let guiElements=document.querySelectorAll(".dg");
-        guiElements.forEach(el=>{
-          el.style.display=displayValue;
-        });
-        this.textContent=uiHidden ? "Show UI" : "Hide UI";
+        renderer.setSize(window.innerWidth, window.innerHeight);
       });
-    </script>
-  </body>
+    }
+    
+    // Setup UI controls
+    function setupUIControls() {
+      // Pause button
+      document.getElementById('pauseBtn').addEventListener('click', () => {
+        params.isPaused = !params.isPaused;
+        document.getElementById('pauseBtn').textContent = params.isPaused ? 'Resume' : 'Pause';
+      });
+      
+      // Reset button
+      document.getElementById('resetBtn').addEventListener('click', () => {
+        resetSimulation();
+      });
+      
+      // Add income shock
+      document.getElementById('shockBtn').addEventListener('click', () => {
+        addIncomeShock();
+      });
+      
+      // Speed slider
+      document.getElementById('simSpeedSlider').addEventListener('input', (e) => {
+        params.simulationSpeed = parseInt(e.target.value);
+        document.getElementById('simSpeedValue').textContent = `Speed: ${params.simulationSpeed}`;
+      });
+      
+      // Altruism strength slider
+      document.getElementById('altruismStrength').addEventListener('input', (e) => {
+        params.altruismStrength = parseFloat(e.target.value);
+        document.getElementById('altruismValue').textContent = `Strength: ${params.altruismStrength.toFixed(1)}`;
+        updateConnectionStrengths();
+      });
+      
+      // Income inequality slider
+      document.getElementById('incomeInequalitySlider').addEventListener('input', (e) => {
+        params.incomeInequality = parseFloat(e.target.value);
+        document.getElementById('inequalityValue').textContent = `Inequality: ${params.incomeInequality.toFixed(1)}`;
+      });
+      
+      // Transfer friction slider
+      document.getElementById('transferFrictionSlider').addEventListener('input', (e) => {
+        params.transferFriction = parseFloat(e.target.value);
+        document.getElementById('frictionValue').textContent = `Friction: ${params.transferFriction.toFixed(2)}`;
+      });
+      
+      // Agent count slider
+      document.getElementById('agentCountSlider').addEventListener('input', (e) => {
+        params.numAgents = parseInt(e.target.value);
+        document.getElementById('agentCountValue').textContent = `Agents: ${params.numAgents}`;
+      });
+      
+      // Node size slider
+      document.getElementById('nodeSizeSlider').addEventListener('input', (e) => {
+        displayParams.nodeSize = parseFloat(e.target.value);
+        document.getElementById('nodeSizeValue').textContent = `Size: ${displayParams.nodeSize.toFixed(1)}`;
+        updateAgentSizes();
+      });
+      
+      // Connection width slider
+      document.getElementById('connectionWidthSlider').addEventListener('input', (e) => {
+        displayParams.connectionWidth = parseFloat(e.target.value);
+        document.getElementById('connectionWidthValue').textContent = `Width: ${displayParams.connectionWidth.toFixed(1)}`;
+        updateConnectionWidths();
+      });
+      
+      // Show emojis toggle
+      document.getElementById('showEmojisToggle').addEventListener('change', (e) => {
+        displayParams.showEmojis = e.target.checked;
+        updateEmojisVisibility();
+      });
+      
+      // Show transfers toggle
+      document.getElementById('showTransfersToggle').addEventListener('change', (e) => {
+        displayParams.showTransfers = e.target.checked;
+      });
+      
+      // Show connections toggle
+      document.getElementById('showConnectionsToggle').addEventListener('change', (e) => {
+        displayParams.showConnections = e.target.checked;
+        updateConnectionsVisibility();
+      });
+      
+      // Color mode buttons
+      document.getElementById('colorByUtilityBtn').addEventListener('click', () => {
+        displayParams.colorMode = 'utility';
+        setActiveButton('colorByUtilityBtn', ['colorByIncomeBtn', 'colorByTransfersBtn']);
+        updateAgentColors();
+      });
+      
+      document.getElementById('colorByIncomeBtn').addEventListener('click', () => {
+        displayParams.colorMode = 'income';
+        setActiveButton('colorByIncomeBtn', ['colorByUtilityBtn', 'colorByTransfersBtn']);
+        updateAgentColors();
+      });
+      
+      document.getElementById('colorByTransfersBtn').addEventListener('click', () => {
+        displayParams.colorMode = 'transfers';
+        setActiveButton('colorByTransfersBtn', ['colorByUtilityBtn', 'colorByIncomeBtn']);
+        updateAgentColors();
+      });
+      
+      // Layout buttons
+      document.getElementById('layoutCircleBtn').addEventListener('click', () => {
+        displayParams.layout = 'circle';
+        setActiveButton('layoutCircleBtn', ['layoutGridBtn', 'layoutRandomBtn']);
+        repositionAgents();
+      });
+      
+      document.getElementById('layoutGridBtn').addEventListener('click', () => {
+        displayParams.layout = 'grid';
+        setActiveButton('layoutGridBtn', ['layoutCircleBtn', 'layoutRandomBtn']);
+        repositionAgents();
+      });
+      
+      document.getElementById('layoutRandomBtn').addEventListener('click', () => {
+        displayParams.layout = 'random';
+        setActiveButton('layoutRandomBtn', ['layoutCircleBtn', 'layoutGridBtn']);
+        repositionAgents();
+      });
+    }
+    
+    // Helper to set active button
+    function setActiveButton(activeId, inactiveIds) {
+      document.getElementById(activeId).classList.add('active');
+      inactiveIds.forEach(id => {
+        document.getElementById(id).classList.remove('active');
+      });
+    }
+    
+    // Update agent sizes
+    function updateAgentSizes() {
+      agents.forEach(agent => {
+        // Base size scaled by display parameter
+        let baseScale = displayParams.nodeSize;
+        
+        // Additional scaling based on utility or other factors
+        let utilityScale = 0.8 + (agent.utility / 2) * 0.4; // Utility is typically 0-2
+        
+        // Apply scale
+        let finalScale = baseScale * utilityScale;
+        agent.mesh.scale.set(finalScale, finalScale, finalScale);
+      });
+    }
+    
+    // Update connection widths
+    function updateConnectionWidths() {
+      connections.forEach(conn => {
+        // Each connection's line has a material we can update
+        if (conn.object && conn.object.material) {
+          // Base width scaled by display parameter
+          let scaledWidth = displayParams.connectionWidth * 2; // Multiplier to make it visible
+          conn.object.material.linewidth = scaledWidth; // Note: this has limited browser support
+          
+          // We can also update the opacity to make it more visible
+          conn.object.material.opacity = 0.4 * displayParams.connectionWidth;
+        }
+      });
+    }
+    
+    // Update emojis visibility
+    function updateEmojisVisibility() {
+      agents.forEach(agent => {
+        if (agent.emojiElement) {
+          agent.emojiElement.style.display = displayParams.showEmojis ? 'block' : 'none';
+        }
+      });
+    }
+    
+    // Update connections visibility
+    function updateConnectionsVisibility() {
+      connections.forEach(conn => {
+        if (conn.object) {
+          conn.object.visible = displayParams.showConnections;
+        }
+      });
+    }
+    
+    // Reposition agents based on layout
+    function repositionAgents() {
+      if (displayParams.layout === 'circle') {
+        agents.forEach((agent, i) => {
+          const angle = (i / agents.length) * Math.PI * 2;
+          const radius = 15 + (Math.random() - 0.5) * 5;
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          const z = (Math.random() - 0.5) * 5;
+          
+          // Animate position change
+          animatePosition(agent, new THREE.Vector3(x, y, z));
+        });
+      } 
+      else if (displayParams.layout === 'grid') {
+        const gridSize = Math.ceil(Math.sqrt(agents.length));
+        const spacing = 30 / gridSize;
+        
+        agents.forEach((agent, i) => {
+          const row = Math.floor(i / gridSize);
+          const col = i % gridSize;
+          
+          const x = (col - gridSize/2 + 0.5) * spacing;
+          const y = (row - gridSize/2 + 0.5) * spacing;
+          const z = (Math.random() - 0.5) * 3;
+          
+          // Animate position change
+          animatePosition(agent, new THREE.Vector3(x, y, z));
+        });
+      }
+      else if (displayParams.layout === 'random') {
+        agents.forEach(agent => {
+          const x = (Math.random() - 0.5) * 30;
+          const y = (Math.random() - 0.5) * 30;
+          const z = (Math.random() - 0.5) * 10;
+          
+          // Animate position change
+          animatePosition(agent, new THREE.Vector3(x, y, z));
+        });
+      }
+      
+      // Update connections after a brief delay to allow agent positions to update
+      setTimeout(updateConnections, 1000);
+    }
+    
+    // Animate position change
+    function animatePosition(agent, newPosition) {
+      const originalPosition = agent.position.clone();
+      const startTime = Date.now();
+      const duration = 1000; // Animation duration in ms
+      
+      function animate() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Ease in-out function for smoother animation
+        const easedProgress = progress < 0.5 
+          ? 2 * progress * progress 
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        
+        // Interpolate position
+        const currentPosition = new THREE.Vector3().lerpVectors(
+          originalPosition,
+          newPosition,
+          easedProgress
+        );
+        
+        // Update position
+        agent.position.copy(currentPosition);
+        agent.mesh.position.copy(currentPosition);
+        
+        // Continue animation if not complete
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      }
+      
+      animate();
+    }
+    
+    // Update connections after agent positions change
+    function updateConnections() {
+      connections.forEach(conn => {
+        // Get updated positions
+        const fromPos = agents[conn.from].position;
+        const toPos = agents[conn.to].position;
+        
+        // Update connection geometry
+        if (conn.object) {
+          scene.remove(conn.object);
+          
+          // Create new connection with updated positions
+          const points = [fromPos, toPos];
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          const material = new THREE.LineBasicMaterial({
+            color: 0x88aaff,
+            transparent: true,
+            opacity: 0.4 * displayParams.connectionWidth
+          });
+          
+          const line = new THREE.Line(geometry, material);
+          scene.add(line);
+          
+          // Update connection object
+          conn.object = line;
+        }
+      });
+    }
+    
+    // Update agent colors based on selected mode
+    function updateAgentColors() {
+      agents.forEach(agent => {
+        let color;
+        
+        if (displayParams.colorMode === 'utility') {
+          // Color based on utility
+          const normalizedUtility = Math.min(1, agent.utility / 2);
+          
+          if (normalizedUtility > 0.66) {
+            color = highUtilityColor;
+          } else if (normalizedUtility > 0.33) {
+            color = medUtilityColor;
+          } else {
+            color = lowUtilityColor;
+          }
+          
+          // Update emoji face
+          if (agent.emojiElement) {
+            agent.emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
+          }
+        } 
+        else if (displayParams.colorMode === 'income') {
+          // Color based on income
+          // Find max income for normalization
+          const maxIncome = Math.max(...agents.map(a => a.income));
+          const normalizedIncome = agent.income / maxIncome;
+          
+          // Interpolate between low and high income colors
+          color = lowIncomeColor.clone().lerp(highIncomeColor, normalizedIncome);
+          
+          // Update emoji to show income level
+          if (agent.emojiElement) {
+            agent.emojiElement.textContent = normalizedIncome > 0.66 ? '💰' : normalizedIncome > 0.33 ? '💼' : '👝';
+          }
+        } 
+        else if (displayParams.colorMode === 'transfers') {
+          // Color based on transfer activity
+          // Normalize by max transfer count
+          const maxTransfers = Math.max(1, ...agents.map(a => a.transferCount || 0));
+          const normalizedTransfers = (agent.transferCount || 0) / maxTransfers;
+          
+          // Interpolate between low and high transfer colors
+          color = lowTransferColor.clone().lerp(highTransferColor, normalizedTransfers);
+          
+          // Update emoji to show transfer activity
+          if (agent.emojiElement) {
+            agent.emojiElement.textContent = normalizedTransfers > 0.66 ? '🔄' : normalizedTransfers > 0.33 ? '↔️' : '⏹️';
+          }
+        }
+        
+        // Apply color
+        if (agent.mesh && agent.mesh.material) {
+          agent.mesh.material.color.copy(color);
+        }
+      });
+    }
+    
+    // Update connection strengths when altruism parameter changes
+    function updateConnectionStrengths() {
+      connections.forEach(conn => {
+        // Keep the random component but update the base strength
+        conn.strength = params.altruismStrength * conn.randomFactor;
+      });
+    }
+    
+    // Generate agent incomes with controlled inequality
+    function generateIncomes(count, inequalityFactor) {
+      const incomes = [];
+      
+      if (inequalityFactor <= 1) {
+        // Close to uniform distribution
+        for (let i = 0; i < count; i++) {
+          incomes.push(2 + Math.random() * 8); // range [2-10]
+        }
+      } else {
+        // Power law distribution
+        const exponent = 1 + inequalityFactor * 0.5;
+        
+        for (let i = 0; i < count; i++) {
+          const r = Math.random();
+          const x = Math.pow(r, -1/exponent);
+          incomes.push(1 + x * 19);
+        }
+      }
+      
+      return incomes;
+    }
+    
+    // Calculate utility given a consumption level
+    function calculateUtility(consumption) {
+      // CARA utility function: (1 - e^(-α*c))/α
+      const alpha = 0.5;
+      return (1 - Math.exp(-alpha * consumption)) / alpha;
+    }
+    
+    // Calculate marginal utility
+    function calculateMarginalUtility(consumption) {
+      const alpha = 0.5;
+      return Math.exp(-alpha * consumption);
+    }
+    
+    // Create agents and connections
+    function createAgentsAndConnections() {
+      // Clear existing objects
+      clearScene();
+      
+      // Generate incomes
+      const incomes = generateIncomes(params.numAgents, params.incomeInequality);
+      
+      // Create agents
+      for (let i = 0; i < params.numAgents; i++) {
+        let position;
+        
+        if (displayParams.layout === 'circle') {
+          // Position agents in a circle with some randomness
+          const angle = (i / params.numAgents) * Math.PI * 2;
+          const radius = 15 + (Math.random() - 0.5) * 5;
+          position = new THREE.Vector3(
+            Math.cos(angle) * radius,
+            Math.sin(angle) * radius,
+            (Math.random() - 0.5) * 5
+          );
+        }
+        else if (displayParams.layout === 'grid') {
+          // Position agents in a grid
+          const gridSize = Math.ceil(Math.sqrt(params.numAgents));
+          const spacing = 30 / gridSize;
+          
+          const row = Math.floor(i / gridSize);
+          const col = i % gridSize;
+          
+          position = new THREE.Vector3(
+            (col - gridSize/2 + 0.5) * spacing,
+            (row - gridSize/2 + 0.5) * spacing,
+            (Math.random() - 0.5) * 3
+          );
+        }
+        else { // Random layout
+          position = new THREE.Vector3(
+            (Math.random() - 0.5) * 30,
+            (Math.random() - 0.5) * 30,
+            (Math.random() - 0.5) * 10
+          );
+        }
+        
+        // Create agent geometry
+        const geometry = new THREE.SphereGeometry(1, 16, 16);
+        
+        // Calculate initial utility and color
+        const consumption = incomes[i];
+        const utility = calculateUtility(consumption);
+        const normalizedUtility = Math.min(1, utility / 2);
+        
+        let color;
+        if (normalizedUtility > 0.66) {
+          color = highUtilityColor;
+        } else if (normalizedUtility > 0.33) {
+          color = medUtilityColor;
+        } else {
+          color = lowUtilityColor;
+        }
+        
+        const material = new THREE.MeshPhongMaterial({ color: color });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.copy(position);
+        
+        // Apply base size scaling
+        const baseScale = displayParams.nodeSize;
+        const utilityScale = 0.8 + normalizedUtility * 0.4;
+        const finalScale = baseScale * utilityScale;
+        mesh.scale.set(finalScale, finalScale, finalScale);
+        
+        scene.add(mesh);
+        
+        // Create emoji element
+        const emojiElement = document.createElement('div');
+        emojiElement.className = 'emoji-face';
+        emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
+        emojiElement.style.display = displayParams.showEmojis ? 'block' : 'none';
+        document.body.appendChild(emojiElement);
+        
+        // Store agent data
+        agents.push({
+          mesh: mesh,
+          income: incomes[i],
+          consumption: consumption,
+          utility: utility,
+          position: position,
+          emojiElement: emojiElement,
+          lastUpdated: 0,
+          transferCount: 0 // Track how many transfers this agent is involved in
+        });
+      }
+      
+      // Create connections between agents
+      createConnections();
+      
+      // Initialize history arrays
+      utilityHistory = [];
+      inequalityHistory = [];
+      
+      // Reset stats
+      params.iterationCount = 0;
+      params.transferCount = 0;
+      
+      updateStats();
+    }
+    
+    // Create connections between agents
+    function createConnections() {
+      connections = [];
+      
+      for (let i = 0; i < agents.length; i++) {
+        // Connect to neighbors with some probability
+        for (let j = 0; j < agents.length; j++) {
+          if (i !== j) {
+            const distance = agents[i].position.distanceTo(agents[j].position);
+            // Higher probability for closer agents
+            const probability = 0.3 * (1 / (1 + distance * 0.05));
+            
+            if (Math.random() < probability) {
+              createConnection(i, j);
+            }
+          }
+        }
+        
+        // Ensure each agent has at least one connection
+        if (!connections.some(c => c.from === i || c.to === i)) {
+          // Connect to the closest agent
+          let closestIdx = -1;
+          let minDist = Infinity;
+          
+          for (let j = 0; j < agents.length; j++) {
+            if (i !== j) {
+              const distance = agents[i].position.distanceTo(agents[j].position);
+              if (distance < minDist) {
+                minDist = distance;
+                closestIdx = j;
+              }
+            }
+          }
+          
+          if (closestIdx >= 0) {
+            createConnection(i, closestIdx);
+          }
+        }
+      }
+    }
+    
+    // Create a connection between two agents
+    function createConnection(i, j) {
+      const points = [
+        agents[i].position,
+        agents[j].position
+      ];
+      
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({
+        color: 0x88aaff,
+        transparent: true,
+        opacity: 0.4 * displayParams.connectionWidth
+      });
+      
+      const line = new THREE.Line(geometry, material);
+      line.visible = displayParams.showConnections;
+      scene.add(line);
+      
+      // Random factor for connection strength
+      const randomFactor = 0.8 + Math.random() * 0.4;
+      
+      connections.push({
+        from: i,
+        to: j,
+        strength: params.altruismStrength * randomFactor,
+        randomFactor: randomFactor, // Store for updates
+        object: line
+      });
+    }
+    
+    // Create a transfer visualization
+    function createTransferVisualization(fromAgent, toAgent, amount) {
+      if (!displayParams.showTransfers) return null;
+      
+      // Create a small sphere representing the transfer
+      const geometry = new THREE.SphereGeometry(0.2, 8, 8);
+      const material = new THREE.MeshBasicMaterial({ 
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.8
+      });
+      
+      const mesh = new THREE.Mesh(geometry, material);
+      
+      // Start at the giving agent
+      mesh.position.copy(fromAgent.position);
+      scene.add(mesh);
+      
+      // Store the transfer particle data
+      transferParticles.push({
+        mesh: mesh,
+        from: fromAgent,
+        to: toAgent,
+        amount: amount,
+        progress: 0,
+        speed: 0.01 + Math.random() * 0.01 // Slower transfers for visualization
+      });
+      
+      return mesh;
+    }
+    
+    // Update transfer particles
+    function updateTransferParticles() {
+      // Skip if transfers are hidden
+      if (!displayParams.showTransfers) {
+        transferParticles.forEach(particle => {
+          if (particle.mesh) particle.mesh.visible = false;
+        });
+        return;
+      }
+      
+      // Update existing particles
+      for (let i = transferParticles.length - 1; i >= 0; i--) {
+        const particle = transferParticles[i];
+        
+        // Show particles
+        if (particle.mesh) particle.mesh.visible = true;
+        
+        // Update progress
+        particle.progress += particle.speed;
+        
+        if (particle.progress >= 1) {
+          // Remove completed particles
+          scene.remove(particle.mesh);
+          transferParticles.splice(i, 1);
+        } else {
+          // Interpolate position
+          const newPos = new THREE.Vector3().lerpVectors(
+            particle.from.position,
+            particle.to.position,
+            particle.progress
+          );
+          
+          // Add a small arc to the path
+          const mid = new THREE.Vector3().lerpVectors(
+            particle.from.position,
+            particle.to.position,
+            0.5
+          );
+          
+          const up = new THREE.Vector3(0, 0, 1);
+          const dir = new THREE.Vector3().subVectors(particle.to.position, particle.from.position);
+          if (Math.abs(dir.dot(up)) > 0.9) up.set(1, 0, 0);
+          
+          const arcHeight = particle.from.position.distanceTo(particle.to.position) * 0.2;
+          const normal = new THREE.Vector3().crossVectors(dir, up).normalize();
+          
+          // Parabolic arc
+          const arcOffset = Math.sin(particle.progress * Math.PI) * arcHeight;
+          newPos.addScaledVector(normal, arcOffset);
+          
+          particle.mesh.position.copy(newPos);
+          
+          // Scale based on amount
+          const scale = 0.2 + particle.amount * 0.05;
+          particle.mesh.scale.set(scale, scale, scale);
+          
+          // Pulse effect
+          const pulse = 0.8 + 0.2 * Math.sin(particle.progress * Math.PI * 4);
+          particle.mesh.scale.multiplyScalar(pulse);
+        }
+      }
+    }
+    
+    // Clear scene
+    function clearScene() {
+      // Remove agents
+      agents.forEach(agent => {
+        scene.remove(agent.mesh);
+        if (agent.emojiElement) {
+          document.body.removeChild(agent.emojiElement);
+        }
+      });
+      
+      // Remove connections
+      connections.forEach(connection => {
+        scene.remove(connection.object);
+      });
+      
+      // Remove transfer particles
+      transferParticles.forEach(particle => {
+        scene.remove(particle.mesh);
+      });
+      
+      agents = [];
+      connections = [];
+      activeTransfers = [];
+      transferParticles = [];
+    }
+    
+    // Reset simulation
+    function resetSimulation() {
+      createAgentsAndConnections();
+    }
+    
+    // Add an income shock to the system
+    function addIncomeShock() {
+      // Shock multiple agents for more dramatic effect
+      const shockCount = Math.max(1, Math.floor(agents.length * 0.1)); // Shock about 10% of agents
+      
+      for (let shockIndex = 0; shockIndex < shockCount; shockIndex++) {
+        // Choose target
+        let targetIdx;
+        const shockType = Math.random();
+        
+        if (shockType < 0.5) {
+          // Random agent
+          targetIdx = Math.floor(Math.random() * agents.length);
+        } else {
+          // Find the richest agent
+          let maxIncome = -Infinity;
+          let richestIdx = 0;
+          
+          for (let i = 0; i < agents.length; i++) {
+            if (agents[i].income > maxIncome) {
+              maxIncome = agents[i].income;
+              richestIdx = i;
+            }
+          }
+          
+          targetIdx = richestIdx;
+        }
+        
+        // Apply shock - either positive or negative
+        const direction = Math.random() < 0.7 ? 1 : -1; // 70% chance of positive shock
+        const magnitude = agents[targetIdx].income * (0.3 + Math.random() * 0.5); // 30-80% change
+        
+        // Apply the shock
+        agents[targetIdx].income += direction * magnitude;
+        agents[targetIdx].income = Math.max(1, agents[targetIdx].income); // Ensure minimum income
+        
+        // Update consumption as well (immediate effect)
+        agents[targetIdx].consumption += direction * magnitude;
+        agents[targetIdx].consumption = Math.max(1, agents[targetIdx].consumption);
+        
+        // Update utility
+        agents[targetIdx].utility = calculateUtility(agents[targetIdx].consumption);
+        
+        // Update appearance
+        updateAgentAppearance(agents[targetIdx]);
+        
+        // Visual indication of the shock
+        const agent = agents[targetIdx];
+        
+        // Briefly make the agent larger
+        const originalScale = agent.mesh.scale.x;
+        agent.mesh.scale.set(originalScale * 2, originalScale * 2, originalScale * 2);
+        
+        // Animate back to normal size
+        setTimeout(() => {
+          agent.mesh.scale.set(originalScale, originalScale, originalScale);
+        }, 500);
+        
+        // Show a message
+        const shockMsg = document.createElement('div');
+        shockMsg.style.position = 'absolute';
+        shockMsg.style.color = direction > 0 ? 'lime' : 'red';
+        shockMsg.style.fontSize = '16px';
+        shockMsg.style.fontWeight = 'bold';
+        shockMsg.style.textShadow = '0 0 3px black';
+        shockMsg.textContent = direction > 0 ? '+' + magnitude.toFixed(1) : magnitude.toFixed(1);
+        
+        // Position near the agent
+        const screenPos = toScreenPosition(agent.mesh, camera, renderer);
+        shockMsg.style.left = screenPos.x + 'px';
+        shockMsg.style.top = (screenPos.y - 30) + 'px';
+        
+        document.body.appendChild(shockMsg);
+        
+        // Remove after animation
+        setTimeout(() => {
+          shockMsg.style.transition = 'opacity 1s';
+          shockMsg.style.opacity = '0';
+        }, 1000);
+        
+        setTimeout(() => {
+          document.body.removeChild(shockMsg);
+        }, 2000);
+      }
+      
+      // Update stats
+      updateStats();
+      
+      // Update colors if needed
+      updateAgentColors();
+    }
+    
+    // Calculate Gini coefficient (inequality measure)
+    function calculateGini(values) {
+      // Sort values in ascending order
+      const sortedValues = [...values].sort((a, b) => a - b);
+      const n = sortedValues.length;
+      
+      if (n === 0) return 0;
+      
+      let sumOfAbsoluteDifferences = 0;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          sumOfAbsoluteDifferences += Math.abs(sortedValues[i] - sortedValues[j]);
+        }
+      }
+      
+      // Gini formula
+      return sumOfAbsoluteDifferences / (2 * n * n * sortedValues.reduce((a, b) => a + b, 0) / n);
+    }
+    
+    // Update simulation statistics
+    function updateStats() {
+      // Calculate average utility
+      let totalUtility = 0;
+      for (const agent of agents) {
+        totalUtility += agent.utility;
+      }
+      const avgUtility = totalUtility / agents.length;
+      
+      // Calculate consumption inequality (Gini coefficient)
+      const consumptions = agents.map(a => a.consumption);
+      const giniCoefficient = calculateGini(consumptions);
+      
+      // Update history arrays
+      utilityHistory.push(avgUtility);
+      inequalityHistory.push(giniCoefficient);
+      
+      // Limit history length
+      const maxHistory = 100;
+      if (utilityHistory.length > maxHistory) {
+        utilityHistory.shift();
+        inequalityHistory.shift();
+      }
+      
+      // Update UI
+      document.getElementById('iterationCount').textContent = `Iteration: ${params.iterationCount}`;
+      document.getElementById('avgUtility').textContent = `Average Utility: ${avgUtility.toFixed(3)}`;
+      document.getElementById('transferCount').textContent = `Transfers: ${params.transferCount}`;
+      document.getElementById('inequalityMeasure').textContent = `Consumption Gini: ${giniCoefficient.toFixed(3)}`;
+      
+      // Draw graph
+      drawUtilityGraph();
+    }
+    
+    // Draw utility graph
+    function drawUtilityGraph() {
+      const canvas = document.getElementById('graphCanvas');
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+      
+      // Draw background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(0, 0, width, height);
+      
+      // Draw grid lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      
+      // Horizontal grid lines
+      for (let i = 0; i <= 5; i++) {
+        const y = height - (i / 5) * height;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+      
+      // Vertical grid lines
+      for (let i = 0; i <= 10; i++) {
+        const x = (i / 10) * width;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+      
+      // No data to draw
+      if (utilityHistory.length < 2) return;
+      
+      // Find max utility for scaling
+      const maxUtility = Math.max(...utilityHistory, 2);
+      
+      // Draw utility history
+      ctx.strokeStyle = 'rgba(255, 119, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      for (let i = 0; i < utilityHistory.length; i++) {
+        const x = (i / (utilityHistory.length - 1)) * width;
+        const y = height - (utilityHistory[i] / maxUtility) * height;
+        
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+      
+      // Draw inequality history
+      ctx.strokeStyle = 'rgba(119, 255, 255, 0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      for (let i = 0; i < inequalityHistory.length; i++) {
+        const x = (i / (inequalityHistory.length - 1)) * width;
+        const y = height - inequalityHistory[i] * height; // Gini is already [0-1]
+        
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+      
+      // Draw legend
+      ctx.font = '12px Arial';
+      ctx.fillStyle = 'rgba(255, 119, 255, 0.8)';
+      ctx.fillText('Utility', 10, 15);
+      
+      ctx.fillStyle = 'rgba(119, 255, 255, 0.8)';
+      ctx.fillText('Inequality', 70, 15);
+    }
+    
+    // Helper function to convert 3D position to screen position
+    function toScreenPosition(obj, camera, renderer) {
+      const vector = new THREE.Vector3();
+      obj.getWorldPosition(vector);
+      
+      vector.project(camera);
+      
+      const widthHalf = renderer.domElement.width / 2;
+      const heightHalf = renderer.domElement.height / 2;
+      
+      return {
+        x: (vector.x * widthHalf) + widthHalf,
+        y: -(vector.y * heightHalf) + heightHalf
+      };
+    }
+    
+    // Simulation step - process transfers for one iteration
+    function simulationStep() {
+      if (params.isPaused) return;
+      
+      // Increment iteration counter
+      params.iterationCount++;
+      
+      // Process potential transfers for each connection
+      for (let i = 0; i < params.simulationSpeed; i++) {
+        // Choose a random connection
+        const connIdx = Math.floor(Math.random() * connections.length);
+        const conn = connections[connIdx];
+        
+        const giver = agents[conn.from];
+        const receiver = agents[conn.to];
+        
+        // Check whether transfer should happen
+        const giverMarginalUtility = calculateMarginalUtility(giver.consumption);
+        const receiverMarginalUtility = calculateMarginalUtility(receiver.consumption);
+        
+        // Transfer happens if: giver's marginal utility * alpha < receiver's marginal utility
+        // And if giver is wealthier than receiver
+        if (giverMarginalUtility * conn.strength < receiverMarginalUtility && 
+            giver.consumption > receiver.consumption) {
+            
+          // Calculate optimal transfer amount (use much smaller coefficient)
+          // This is the key change - using 0.01 instead of 0.1 means much slower transfers
+          const maxTransferAmount = (giver.consumption - receiver.consumption) * 0.01 * conn.strength;
+          
+          // Apply friction to slow down transfers even more
+          const frictionFactor = 1 - params.transferFriction;
+          const transferAmount = maxTransferAmount * frictionFactor;
+          
+          // Apply transfer if significant
+          if (transferAmount > 0.005 && transferAmount < giver.consumption * 0.5) {
+            // Update consumptions
+            giver.consumption -= transferAmount;
+            receiver.consumption += transferAmount;
+            
+            // Update utilities
+            giver.utility = calculateUtility(giver.consumption);
+            receiver.utility = calculateUtility(receiver.consumption);
+            
+            // Track transfer activity
+            giver.transferCount = (giver.transferCount || 0) + 1;
+            receiver.transferCount = (receiver.transferCount || 0) + 1;
+            
+            // Update colors
+            updateAgentAppearance(giver);
+            updateAgentAppearance(receiver);
+            
+            // Create transfer visualization
+            createTransferVisualization(giver, receiver, transferAmount);
+            
+            // Increment transfer counter
+            params.transferCount++;
+            
+            // Record when the agent was last updated
+            giver.lastUpdated = params.iterationCount;
+            receiver.lastUpdated = params.iterationCount;
+          }
+        }
+      }
+      
+      // Update stats every 10 iterations
+      if (params.iterationCount % 10 === 0) {
+        updateStats();
+      }
+      
+      // Update colors in transfers mode every 30 iterations
+      if (displayParams.colorMode === 'transfers' && params.iterationCount % 30 === 0) {
+        updateAgentColors();
+      }
+    }
+    
+    // Update agent appearance based on utility
+    function updateAgentAppearance(agent) {
+      // Apply base scale
+      const baseScale = displayParams.nodeSize;
+      
+      // Additional utility-based scaling
+      const utility = agent.utility;
+      const normalizedUtility = Math.min(1, utility / 2);
+      const utilityScale = 0.8 + normalizedUtility * 0.4;
+      
+      // Set final scale
+      const finalScale = baseScale * utilityScale;
+      agent.mesh.scale.set(finalScale, finalScale, finalScale);
+      
+      // Update color and emoji based on display mode
+      if (displayParams.colorMode === 'utility') {
+        // Color based on utility level
+        let color;
+        if (normalizedUtility > 0.66) {
+          color = highUtilityColor;
+        } else if (normalizedUtility > 0.33) {
+          color = medUtilityColor;
+        } else {
+          color = lowUtilityColor;
+        }
+        
+        agent.mesh.material.color.copy(color);
+        
+        // Update emoji
+        if (agent.emojiElement) {
+          agent.emojiElement.textContent = normalizedUtility > 0.66 ? '😊' : normalizedUtility > 0.33 ? '😐' : '😟';
+        }
+      }
+    }
+    
+    // Update emoji positions
+    function updateEmojiPositions() {
+      for (const agent of agents) {
+        if (agent.emojiElement) {
+          const screenPos = toScreenPosition(agent.mesh, camera, renderer);
+          agent.emojiElement.style.left = (screenPos.x - 12) + 'px';
+          agent.emojiElement.style.top = (screenPos.y - 12) + 'px';
+          
+          // Show/hide based on camera distance and settings
+          const distance = camera.position.distanceTo(agent.mesh.position);
+          agent.emojiElement.style.display = 
+            (displayParams.showEmojis && distance < 80) ? 'block' : 'none';
+          
+          // Highlight recently updated agents
+          const timeSinceUpdate = params.iterationCount - agent.lastUpdated;
+          if (timeSinceUpdate < 3) {
+            agent.emojiElement.style.textShadow = '0 0 5px white';
+          } else {
+            agent.emojiElement.style.textShadow = '0 0 3px black';
+          }
+        }
+      }
+    }
+    
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      // Simulation step
+      simulationStep();
+      
+      // Update transfer particles
+      updateTransferParticles();
+      
+      // Update emoji positions
+      updateEmojiPositions();
+      
+      // Render scene
+      renderer.render(scene, camera);
+      controls.update();
+    }
+    
+    // Start everything
+    init();
+    animate();
+  </script>
+</body>
 </html>
