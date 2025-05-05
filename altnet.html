@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dynamic Altruism Network Simulation</title>
+  <title>Gradual Altruism Network Simulation</title>
   <style>
     body { 
       margin: 0; 
@@ -96,10 +96,15 @@
     input[type="range"] {
       width: 100%;
     }
+    .value-display {
+      font-size: 12px;
+      color: #cccccc;
+      margin-top: 2px;
+    }
   </style>
 </head>
 <body>
-  <div id="info">Dynamic Altruism Network Simulation — drag to rotate, scroll to zoom</div>
+  <div id="info">Gradual Altruism Network Simulation — drag to rotate, scroll to zoom</div>
   
   <div id="simulationStats">
     <h3>Simulation Statistics</h3>
@@ -117,25 +122,35 @@
       <button id="shockBtn">Add Income Shock</button>
       
       <label for="simSpeedSlider">Simulation Speed:</label>
-      <input type="range" id="simSpeedSlider" min="1" max="20" value="5">
+      <input type="range" id="simSpeedSlider" min="1" max="20" value="3">
+      <div id="simSpeedValue" class="value-display">Speed: 3</div>
       
       <label for="altruismStrength">Altruism Strength:</label>
       <input type="range" id="altruismStrength" min="0.1" max="2" step="0.1" value="1">
+      <div id="altruismValue" class="value-display">Strength: 1.0</div>
       
       <label for="incomeInequalitySlider">Income Inequality:</label>
       <input type="range" id="incomeInequalitySlider" min="0.1" max="5" step="0.1" value="3">
+      <div id="inequalityValue" class="value-display">Inequality: 3.0</div>
+      
+      <label for="transferFrictionSlider">Transfer Friction:</label>
+      <input type="range" id="transferFrictionSlider" min="0.0" max="0.99" step="0.01" value="0.9">
+      <div id="frictionValue" class="value-display">Friction: 0.9</div>
       
       <label for="agentCountSlider">Number of Agents:</label>
       <input type="range" id="agentCountSlider" min="10" max="50" step="1" value="30">
+      <div id="agentCountValue" class="value-display">Agents: 30</div>
     </div>
     
     <h3>Display Options</h3>
     <div class="control-group">
       <label for="nodeSizeSlider">Node Size:</label>
       <input type="range" id="nodeSizeSlider" min="0.5" max="3" step="0.1" value="1">
+      <div id="nodeSizeValue" class="value-display">Size: 1.0</div>
       
       <label for="connectionWidthSlider">Connection Width:</label>
       <input type="range" id="connectionWidthSlider" min="0.5" max="3" step="0.1" value="1">
+      <div id="connectionWidthValue" class="value-display">Width: 1.0</div>
       
       <div>
         <label for="showEmojisToggle">Show Faces:</label>
@@ -200,8 +215,9 @@
     let params = {
       numAgents: 30,
       altruismStrength: 1.0,
-      incomeInequality: 3.0, // Starting with higher inequality to show more variation
-      simulationSpeed: 5,
+      incomeInequality: 3.0, // Higher inequality
+      transferFriction: 0.9, // High friction slows down transfers
+      simulationSpeed: 3,    // Lower initial speed
       iterationCount: 0,
       transferCount: 0,
       isPaused: false
@@ -281,33 +297,45 @@
       // Speed slider
       document.getElementById('simSpeedSlider').addEventListener('input', (e) => {
         params.simulationSpeed = parseInt(e.target.value);
+        document.getElementById('simSpeedValue').textContent = `Speed: ${params.simulationSpeed}`;
       });
       
       // Altruism strength slider
       document.getElementById('altruismStrength').addEventListener('input', (e) => {
         params.altruismStrength = parseFloat(e.target.value);
+        document.getElementById('altruismValue').textContent = `Strength: ${params.altruismStrength.toFixed(1)}`;
         updateConnectionStrengths();
       });
       
       // Income inequality slider
       document.getElementById('incomeInequalitySlider').addEventListener('input', (e) => {
         params.incomeInequality = parseFloat(e.target.value);
+        document.getElementById('inequalityValue').textContent = `Inequality: ${params.incomeInequality.toFixed(1)}`;
+      });
+      
+      // Transfer friction slider
+      document.getElementById('transferFrictionSlider').addEventListener('input', (e) => {
+        params.transferFriction = parseFloat(e.target.value);
+        document.getElementById('frictionValue').textContent = `Friction: ${params.transferFriction.toFixed(2)}`;
       });
       
       // Agent count slider
       document.getElementById('agentCountSlider').addEventListener('input', (e) => {
         params.numAgents = parseInt(e.target.value);
+        document.getElementById('agentCountValue').textContent = `Agents: ${params.numAgents}`;
       });
       
       // Node size slider
       document.getElementById('nodeSizeSlider').addEventListener('input', (e) => {
         displayParams.nodeSize = parseFloat(e.target.value);
+        document.getElementById('nodeSizeValue').textContent = `Size: ${displayParams.nodeSize.toFixed(1)}`;
         updateAgentSizes();
       });
       
       // Connection width slider
       document.getElementById('connectionWidthSlider').addEventListener('input', (e) => {
         displayParams.connectionWidth = parseFloat(e.target.value);
+        document.getElementById('connectionWidthValue').textContent = `Width: ${displayParams.connectionWidth.toFixed(1)}`;
         updateConnectionWidths();
       });
       
@@ -837,7 +865,7 @@
         to: toAgent,
         amount: amount,
         progress: 0,
-        speed: 0.02 + Math.random() * 0.02
+        speed: 0.01 + Math.random() * 0.01 // Slower transfers for visualization
       });
       
       return mesh;
@@ -1208,11 +1236,16 @@
         if (giverMarginalUtility * conn.strength < receiverMarginalUtility && 
             giver.consumption > receiver.consumption) {
             
-          // Calculate optimal transfer amount
-          const transferAmount = (giver.consumption - receiver.consumption) * 0.1 * conn.strength;
+          // Calculate optimal transfer amount (use much smaller coefficient)
+          // This is the key change - using 0.01 instead of 0.1 means much slower transfers
+          const maxTransferAmount = (giver.consumption - receiver.consumption) * 0.01 * conn.strength;
+          
+          // Apply friction to slow down transfers even more
+          const frictionFactor = 1 - params.transferFriction;
+          const transferAmount = maxTransferAmount * frictionFactor;
           
           // Apply transfer if significant
-          if (transferAmount > 0.05 && transferAmount < giver.consumption * 0.5) {
+          if (transferAmount > 0.005 && transferAmount < giver.consumption * 0.5) {
             // Update consumptions
             giver.consumption -= transferAmount;
             receiver.consumption += transferAmount;
